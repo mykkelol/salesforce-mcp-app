@@ -1,6 +1,6 @@
 {
   "name": "salesforce-mcp-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Render-only MCP App cards for Salesforce data: record cards, change previews, and write results. No credentials, no Salesforce calls, no network access.",
   "type": "module",
@@ -11,6 +11,9 @@
     "bin/",
     "src/"
   ],
+  "scripts": {
+    "preview": "node preview/serve.mjs"
+  },
   "engines": {
     "node": ">=20"
   },

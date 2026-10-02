@@ -17,12 +17,21 @@ function inlineModule(source) {
     .join('\n');
 }
 
+// The CSP only allows data: images, so the background and icons are inlined.
+const imageDataUri = (...p) => {
+  const type = p.at(-1).endsWith('.jpg') ? 'jpeg' : 'png';
+  return `data:image/${type};base64,${readFileSync(join(here, ...p)).toString('base64')}`;
+};
+
 export function buildCardHtml(kind, { title, version }) {
   const js = [...SHARED_MODULES.map((m) => inlineModule(read(m))), inlineModule(read('card-app.js'))].join('\n;\n');
   const script = `(function () {\n'use strict';\n${js}\n})();`.replace(/<\/script/gi, '<\\/script');
+  const css = read('card.css')
+    .replace('__BACKGROUND__', () => imageDataUri('lightning-bg.jpg'))
+    .replace(/__ICON_(\w+)__/g, (_, name) => imageDataUri('icons', `${name}.png`));
   return read('card.html')
     .replace('__TITLE__', title)
-    .replace('__CSS__', () => read('card.css'))
+    .replace('__CSS__', () => css)
     .replace('__KIND__', kind)
     .replace('__VERSION__', version)
     .replace('__JS__', () => script);

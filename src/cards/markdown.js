@@ -1,4 +1,4 @@
-// A small Markdown subset for the Apex `preview` text: headings, paragraphs,
+// A small Markdown subset for a tool's preview text: headings, paragraphs,
 // lists, pipe tables, bold, italics with *, inline code, and https links.
 // Everything is escaped first, so the output never carries raw HTML.
 

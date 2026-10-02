@@ -5,6 +5,9 @@
 
 import { formatValue, isEmpty, isNumericType, isPlainObject, lightningRecordUrl, safeHttpsUrl } from './format.js';
 
+// Bumped when the card model changes shape; the card rebuilds older models from the tool input.
+export const MODEL_VERSION = 2;
+
 const MAX_FIELDS = 30;
 const MAX_ROWS = 50;
 const MAX_NEW_ROWS = 10;
@@ -44,9 +47,18 @@ export function unwrap(value) {
 
 // 15- and 18-character Salesforce ids share their first 15 (case-sensitive) characters.
 const id15 = (id) => (typeof id === 'string' ? id.slice(0, 15) : undefined);
+const sameId = (a, b) => typeof a === 'string' && typeof b === 'string' && (a.length === 18 && b.length === 18 ? a === b : id15(a) === id15(b));
+const ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
 
-// A read result: one record, a query result ({ records }), search results, or an array.
-export function pickRecord(value, recordId) {
+// An id, or the id at the end of a record URL such as …/lightning/r/QuoteLineItem/<id>/view.
+function idOf(v) {
+  if (typeof v !== 'string') return undefined;
+  if (ID_RE.test(v)) return v;
+  const m = /\/([A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?)(?:\/view)?\/?(?:[?#].*)?$/.exec(v);
+  return m ? m[1] : undefined;
+}
+
+function recordsOf(value) {
   const v = unwrap(value);
   let records = [];
   if (Array.isArray(v)) {
@@ -57,8 +69,13 @@ export function pickRecord(value, recordId) {
     else if (isPlainObject(v.record)) records = [v.record];
     else records = [v];
   }
-  records = records.filter(isPlainObject);
-  if (typeof recordId === 'string' && recordId) return records.find((r) => r.Id && id15(r.Id) === id15(recordId));
+  return records.filter(isPlainObject);
+}
+
+// A read result: one record, a query result ({ records }), search results, or an array.
+export function pickRecord(value, recordId) {
+  const records = recordsOf(value);
+  if (typeof recordId === 'string' && recordId) return records.find((r) => sameId(r.Id, recordId));
   return records[0];
 }
 
@@ -87,6 +104,7 @@ export function getPath(source, path) {
 }
 
 const isRef = (v) => isPlainObject(v) && typeof v.path === 'string';
+const refKey = (v) => (isRef(v) ? `${v.from === 'result' ? 'result' : 'record'}:${v.path}` : undefined);
 
 export function resolve(val, sources) {
   if (isRef(val)) return getPath(val.from === 'result' ? sources.result : sources.record, val.path);
@@ -105,8 +123,16 @@ function fieldList(list, sources, currency, max = MAX_FIELDS) {
     .map((f) => ({ f, raw: resolve(f.value, sources) }))
     .filter(({ raw }) => !isEmpty(raw))
     .slice(0, max)
-    .map(({ f, raw }) => ({ label: f.label, value: formatValue(raw, f.type, f.currency || currency) }));
+    .map(({ f, raw }) => ({
+      label: f.label,
+      value: formatValue(raw, f.type, f.currency || currency),
+      key: refKey(f.value),
+      ...(f.main === true ? { main: true } : {}),
+    }));
 }
+
+// Field entries carry their source path only while changes are matched to them.
+const shown = ({ key, ...f }) => f;
 
 function noteList(val, sources) {
   const raw = isRef(val) ? resolve(val, sources) : val;
@@ -123,14 +149,81 @@ function noteList(val, sources) {
 }
 
 function rowsOf(val, sources) {
-  const raw = resolve(val, sources);
+  const raw = parseMaybeJson(resolve(val, sources));
   if (Array.isArray(raw)) return raw;
   if (isPlainObject(raw) && Array.isArray(raw.records)) return raw.records;
   return [];
 }
 
-function lineTable(lines, sources, currency) {
-  if (!isPlainObject(lines) || !Array.isArray(lines.columns)) return undefined;
+const isoDate = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : undefined);
+const optional = (raw, type, currency) => (isEmpty(raw) ? undefined : formatValue(raw, type, currency));
+const pendingOr = (raw, currency) => (typeof raw === 'string' && /^pending$/i.test(raw.trim()) ? 'Pending' : optional(raw, 'currency', currency));
+
+// One line as the card shows it: a name, then quantity × price, discount, term and dates, and a total.
+function lineItem(get, defaults, currency, link) {
+  const name = get('name');
+  if (isEmpty(name) || isPlainObject(name)) return undefined;
+  const term = isEmpty(get('term')) ? defaults.term : get('term');
+  return {
+    name: String(name),
+    url: link,
+    quantity: optional(get('quantity'), 'number'),
+    price: optional(get('price'), 'currency', currency),
+    listPrice: optional(get('listPrice'), 'currency', currency),
+    discount: optional(get('discount'), 'percent'),
+    total: pendingOr(get('total'), currency),
+    term: optional(term, 'number'),
+    start: isoDate(get('start')) || defaults.start,
+    end: isoDate(get('end')) || defaults.end,
+  };
+}
+
+const ITEM_PARTS = ['name', 'quantity', 'price', 'listPrice', 'discount', 'total', 'term', 'start', 'end', 'id', 'url'];
+
+function itemLines(lines, sources, currency, origin, states) {
+  const item = isPlainObject(lines.item) && typeof lines.item.name === 'string' ? lines.item : undefined;
+  const d = isPlainObject(lines.defaults) ? lines.defaults : {};
+  const defaults = { term: resolve(d.term, sources), start: isoDate(resolve(d.start, sources)), end: isoDate(resolve(d.end, sources)) };
+  const rowType = typeof lines.recordType === 'string' ? lines.recordType : undefined;
+  const addedIds = (Array.isArray(lines.added) ? lines.added : lines.added === undefined ? [] : [lines.added])
+    .map((v) => idOf(resolve(v, sources)))
+    .filter(Boolean);
+  const rows = (item ? rowsOf(lines.rows, sources) : [])
+    .map(parseMaybeJson)
+    .filter(isPlainObject)
+    .slice(0, MAX_ROWS)
+    .map((row) => {
+      const at = (part) => (typeof item[part] === 'string' ? getPath(row, item[part]) : undefined);
+      const id = idOf(typeof item.id === 'string' ? at('id') : row.Id);
+      const link = safeHttpsUrl(at('url')) || lightningRecordUrl(origin, rowType, id);
+      const line = lineItem(at, defaults, currency, link);
+      return line && { ...line, state: addedIds.some((a) => sameId(a, id)) ? 'added' : states.row };
+    })
+    .filter(Boolean);
+  const added = (Array.isArray(lines.new) ? lines.new : [])
+    .filter(isPlainObject)
+    .slice(0, MAX_NEW_ROWS)
+    .map((n) => {
+      const at = (part) => (ITEM_PARTS.includes(part) ? resolve(n[part], sources) : undefined);
+      const type = typeof n.recordType === 'string' ? n.recordType : rowType;
+      const link = safeHttpsUrl(at('url')) || lightningRecordUrl(origin, type, idOf(at('id')));
+      const line = lineItem(at, defaults, currency, link);
+      return line && { ...line, state: states.added };
+    })
+    .filter(Boolean);
+  // A proposed line has no total until it's saved.
+  const items = [...rows, ...added].map((l) => (!l.total && (l.state === 'suggested' || l.state === 'draft') ? { ...l, total: 'Pending' } : l));
+  return {
+    style: 'items',
+    title: textOf(lines.title, sources) || 'Line items',
+    note: textOf(lines.note, sources),
+    items,
+    count: rows.length,
+    newCount: added.length,
+  };
+}
+
+function tableLines(lines, sources, currency) {
   const columns = lines.columns
     .filter((c) => isPlainObject(c) && typeof c.label === 'string')
     .slice(0, MAX_COLUMNS)
@@ -146,6 +239,7 @@ function lineTable(lines, sources, currency) {
     .slice(0, MAX_NEW_ROWS)
     .map((cells) => ({ cells: columns.map((c, i) => formatValue(resolve(cells[i], sources), c.type, currency)), added: true }));
   return {
+    style: 'table',
     title: textOf(lines.title, sources) || 'Line items',
     note: textOf(lines.note, sources),
     columns: columns.map((c) => ({ label: c.label, numeric: isNumericType(c.type) })),
@@ -153,6 +247,16 @@ function lineTable(lines, sources, currency) {
     count: rows.length,
     newCount: newRows.length,
   };
+}
+
+// `item` (paths into each row) draws lines as rows; `columns` draws the older table;
+// `new` alone draws just the new lines.
+function lineList(lines, sources, currency, origin, states = { row: 'existing', added: 'added' }) {
+  if (!isPlainObject(lines)) return undefined;
+  if (isPlainObject(lines.item) && typeof lines.item.name === 'string') return itemLines(lines, sources, currency, origin, states);
+  if (Array.isArray(lines.columns)) return tableLines(lines, sources, currency);
+  if (Array.isArray(lines.new)) return itemLines(lines, sources, currency, origin, states);
+  return undefined;
 }
 
 export function stagePath(stages, sources) {
@@ -170,13 +274,16 @@ export function stagePath(stages, sources) {
   return { current, offPath: true, steps: steps.map((name) => ({ name, state: 'incomplete' })) };
 }
 
-const notIn = (text) => (item) => !text || !text.includes(item);
+const originOf = (url) => (url ? new URL(url).origin : undefined);
 
 function common(args) {
+  const records = recordsOf(args.record);
   const sources = { record: pickRecord(args.record, args.recordId), result: pickResult(args.result) };
   const rec = sources.record || {};
   const currency = typeof args.currency === 'string' ? args.currency : typeof rec.CurrencyIsoCode === 'string' ? rec.CurrencyIsoCode : undefined;
   const recordType = textOf(args.recordType, sources) || (isPlainObject(rec.attributes) && rec.attributes.type) || 'Record';
+  const instanceUrl = safeHttpsUrl(textOf(args.instanceUrl, sources));
+  const url = safeHttpsUrl(textOf(args.url, sources)) || lightningRecordUrl(instanceUrl, String(recordType), rec.Id);
   const links = (Array.isArray(args.links) ? args.links : [])
     .filter(isPlainObject)
     .slice(0, 4)
@@ -185,33 +292,38 @@ function common(args) {
   return {
     sources,
     currency,
+    otherRecords: sources.record ? Math.max(0, records.length - 1) : 0,
     recordType: String(recordType),
     title: textOf(args.title, sources) || (typeof rec.Name === 'string' ? rec.Name : undefined),
     subtitle: textOf(args.subtitle, sources),
-    url: safeHttpsUrl(textOf(args.url, sources)) || lightningRecordUrl(textOf(args.instanceUrl, sources), String(recordType), rec.Id),
+    origin: originOf(instanceUrl || url),
+    url,
     links,
+    notes: noteList(args.notes, sources),
     footerNote: textOf(args.footerNote, sources),
   };
 }
 
 export function buildRecordCard(args = {}) {
   const c = common(args);
-  const highlights = fieldList(args.highlights, c.sources, c.currency, 8);
-  const details = fieldList(args.fields, c.sources, c.currency);
+  const highlights = fieldList(args.highlights, c.sources, c.currency, 8).map(shown);
+  const details = fieldList(args.fields, c.sources, c.currency).map(shown);
   if (!c.title && !highlights.length && !details.length) {
-    return { kind: 'record', error: 'There was no record or field data to show.' };
+    return { kind: 'record', v: MODEL_VERSION, error: 'There was no record or field data to show.' };
   }
   return {
     kind: 'record',
+    v: MODEL_VERSION,
     recordType: c.recordType,
     title: c.title || c.recordType,
     subtitle: c.subtitle,
     highlights,
     details,
     stage: stagePath(args.stages, c.sources),
-    lines: lineTable(args.lines, c.sources, c.currency),
-    totals: fieldList(args.totals, c.sources, c.currency, 6),
-    notes: noteList(args.notes, c.sources),
+    lines: lineList(args.lines, c.sources, c.currency, c.origin),
+    totals: fieldList(args.totals, c.sources, c.currency, 6).map(shown),
+    notes: c.notes,
+    otherRecords: c.otherRecords,
     url: c.url,
     links: c.links,
     footerNote: c.footerNote,
@@ -219,30 +331,52 @@ export function buildRecordCard(args = {}) {
 }
 
 const CHANGE_STATUSES = ['preview', 'needs-input', 'rejected'];
+const sameLabel = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 export function buildQuoteChangeCard(args = {}) {
   const c = common(args);
   const summary = textOf(args.summary, c.sources);
+  const draft = args.draft === true;
+  const status = CHANGE_STATUSES.includes(args.status) ? args.status : 'preview';
+  // Lines to add are a proposal only while the change can still be confirmed.
+  const lines = status === 'preview' || !isPlainObject(args.lines) ? args.lines : { ...args.lines, new: undefined, newRows: undefined };
+  const changes = (Array.isArray(args.changes) ? args.changes : [])
+    .filter((d) => isPlainObject(d) && typeof d.label === 'string' && d.label)
+    .slice(0, 20)
+    .map((d) => ({
+      label: d.label,
+      key: refKey(d.before),
+      before: formatValue(resolve(d.before, c.sources), d.type, c.currency),
+      after: formatValue(resolve(d.after, c.sources), d.type, c.currency),
+    }));
+  // A change to a value the card already shows is drawn in place, as before → after.
+  const matched = new Set();
+  const withChange = (f) => {
+    const i = changes.findIndex((ch) => (ch.key && ch.key === f.key) || sameLabel(ch.label, f.label));
+    if (i < 0) return shown(f);
+    matched.add(i);
+    return { ...shown(f), change: { before: changes[i].before, after: changes[i].after } };
+  };
+  const highlights = fieldList(args.highlights, c.sources, c.currency, 8).map(withChange);
+  const details = fieldList(args.fields, c.sources, c.currency).map(withChange);
   return {
     kind: 'quote-change',
+    v: MODEL_VERSION,
     recordType: c.recordType,
-    title: c.title || 'Proposed change',
+    action: textOf(args.action, c.sources),
+    title: c.title || textOf(args.action, c.sources) || 'Proposed change',
     subtitle: c.subtitle,
-    status: CHANGE_STATUSES.includes(args.status) ? args.status : 'preview',
+    status,
+    draft,
     message: textOf(args.message, c.sources),
     summary,
-    changes: (Array.isArray(args.changes) ? args.changes : [])
-      .filter((d) => isPlainObject(d) && typeof d.label === 'string' && d.label)
-      .slice(0, 20)
-      .map((d) => ({
-        label: d.label,
-        before: formatValue(resolve(d.before, c.sources), d.type, c.currency),
-        after: formatValue(resolve(d.after, c.sources), d.type, c.currency),
-      })),
-    lines: lineTable(args.lines, c.sources, c.currency),
-    totals: fieldList(args.totals, c.sources, c.currency, 6),
-    details: fieldList(args.fields, c.sources, c.currency),
-    notes: noteList(args.notes, c.sources).filter(notIn(summary)),
+    highlights,
+    details,
+    changes: changes.map((ch, i) => ({ label: ch.label, before: ch.before, after: ch.after, shown: matched.has(i) })),
+    lines: lineList(lines, c.sources, c.currency, c.origin, draft ? { row: 'draft', added: 'draft' } : { row: 'existing', added: 'suggested' }),
+    totals: fieldList(args.totals, c.sources, c.currency, 6).map(shown),
+    consequences: noteList(args.consequences, c.sources),
+    notes: c.notes,
     confirmHint: textOf(args.confirmHint, c.sources),
     url: c.url,
     links: c.links,
@@ -256,16 +390,17 @@ export function buildWriteResultCard(args = {}) {
   const c = common(args);
   return {
     kind: 'write-result',
+    v: MODEL_VERSION,
     recordType: c.recordType,
     title: c.title || c.recordType,
     subtitle: c.subtitle,
     status: WRITE_STATUSES.includes(args.status) ? args.status : 'unknown',
     message: textOf(args.message, c.sources),
     pendingNote: textOf(args.pendingNote, c.sources),
-    details: fieldList(args.fields, c.sources, c.currency),
-    lines: lineTable(args.lines, c.sources, c.currency),
-    totals: fieldList(args.totals, c.sources, c.currency, 6),
-    notes: noteList(args.notes, c.sources),
+    details: fieldList(args.fields, c.sources, c.currency).map(shown),
+    lines: lineList(args.lines, c.sources, c.currency, c.origin),
+    totals: fieldList(args.totals, c.sources, c.currency, 6).map(shown),
+    notes: c.notes,
     url: c.url,
     links: c.links,
     footerNote: c.footerNote,
