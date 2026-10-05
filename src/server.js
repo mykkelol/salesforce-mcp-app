@@ -12,21 +12,22 @@ export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 const MAX_INPUT_CHARS = 200_000;
 
 export const CARD_URIS = {
-  record: 'ui://salesforce-mcp-app/record-card-v2.html',
-  'quote-change': 'ui://salesforce-mcp-app/quote-change-v2.html',
-  'write-result': 'ui://salesforce-mcp-app/write-result-v2.html',
+  record: 'ui://salesforce-mcp-app/record-card-v3.html',
+  'quote-change': 'ui://salesforce-mcp-app/quote-change-v3.html',
+  'write-result': 'ui://salesforce-mcp-app/write-result-v3.html',
 };
 
 // Cards already in a chat point at these. They get the current card, which
-// rebuilds an older card from its saved tool input.
+// rebuilds an older card from its saved tool input. A new URI per release that
+// changes the card's look keeps hosts that cache by URI from showing the old one.
 // The card's images are inlined as data: URIs. Hosts that build the frame's CSP
 // from resourceDomains (and default img-src to 'none') need data: listed.
 const UI_META = { prefersBorder: false, csp: { resourceDomains: ['data:'] } };
 
 const LEGACY_URIS = {
-  record: 'ui://salesforce-mcp-app/record-card-v1.html',
-  'quote-change': 'ui://salesforce-mcp-app/quote-change-v1.html',
-  'write-result': 'ui://salesforce-mcp-app/write-result-v1.html',
+  record: ['ui://salesforce-mcp-app/record-card-v2.html', 'ui://salesforce-mcp-app/record-card-v1.html'],
+  'quote-change': ['ui://salesforce-mcp-app/quote-change-v2.html', 'ui://salesforce-mcp-app/quote-change-v1.html'],
+  'write-result': ['ui://salesforce-mcp-app/write-result-v2.html', 'ui://salesforce-mcp-app/write-result-v1.html'],
 };
 
 const INSTRUCTIONS =
@@ -157,8 +158,9 @@ const TOOLS = [
       'the same path or label as a shown value is drawn on that value) and `lines.new` (lines to add, shown as ' +
       'suggested). Set `draft` when the record doesn’t exist yet, such as a new quote. `consequences` and `notes` ' +
       'list what happens and what to check when the user confirms. Pass the preview tool’s result unchanged as ' +
-      '`result`, and a read of the record as `record` if you have one. Render-only: saving still happens through ' +
-      'your Salesforce tool, only after the user confirms.',
+      '`result`, and a read of the record as `record` if you have one. With status `needs-input` or `rejected` no ' +
+      'card is drawn; reply with the text version, which carries the message. Render-only: saving still happens ' +
+      'through your Salesforce tool, only after the user confirms.',
     inputSchema: z.object({
       ...common,
       status: z.enum(['preview', 'needs-input', 'rejected']).describe('preview: nothing saved yet; needs-input; rejected.'),
@@ -185,10 +187,11 @@ const TOOLS = [
     kind: 'write-result',
     title: 'Show Salesforce write result',
     description:
-      'Shows the outcome of a Salesforce write as a card, with a short text version. Pass the write tool’s result ' +
-      'unchanged as `result`, and a later read as `record` if you have one. Then set `status`, `message`, `fields`, ' +
-      '`lines` (with `lines.new` for a saved line, or `lines.added` to mark saved rows in a later read), `totals` and ' +
-      '`url`, referencing values with {"path": ...}. Render-only.',
+      'Shows the outcome of a Salesforce write, with a short text version. Only a successful save (`status` saved) ' +
+      'with a later read of the record passed as `record` draws a card: that record as it is now, with nothing ' +
+      'marking the save. Anything else draws no card, and the text version carries the message. Pass the write ' +
+      'tool’s result unchanged as `result`, then set `status`, `message`, `fields`, `lines`, `totals` and `url`, ' +
+      'referencing values with {"path": ...}. Render-only.',
     inputSchema: z.object({
       ...common,
       status: z.enum(['saved', 'failed', 'not-saved']),
@@ -242,7 +245,9 @@ export function createServer() {
   for (const tool of TOOLS) {
     const uri = CARD_URIS[tool.kind];
     registerCard(server, tool, uri, `${tool.kind}-card`, `${tool.title} (card)`);
-    registerCard(server, tool, LEGACY_URIS[tool.kind], `${tool.kind}-card-v1`, `${tool.title} (card, earlier link)`);
+    for (const legacy of LEGACY_URIS[tool.kind]) {
+      registerCard(server, tool, legacy, `${tool.kind}-card-${/-(v\d+)\.html$/.exec(legacy)[1]}`, `${tool.title} (card, earlier link)`);
+    }
     server.registerTool(
       tool.name,
       {

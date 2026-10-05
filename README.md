@@ -10,8 +10,8 @@ Render-only MCP App cards for Salesforce data: a record card, a change preview, 
 | Tool | Shows |
 | --- | --- |
 | `show_record_card` | One record: highlights, a stage path, an Information section, line items, totals |
-| `show_quote_change` | A proposed change before saving, drawn on the record: changed values as before → after, suggested lines, and what happens when the user confirms. With `draft`, a record that doesn't exist yet |
-| `show_write_result` | The outcome of a write: status, message, details, the saved lines marked New, totals |
+| `show_quote_change` | A proposed change before saving, drawn on the record: each changed value with the old one struck through, suggested lines, and what happens when the user confirms. With `draft`, a record that doesn't exist yet, in a purple frame. A change that needs input or was refused draws no card; the text version carries the message |
+| `show_write_result` | After a successful save with a later read passed as `record`, that record as it is now, with nothing marking the save. Anything else draws no card; the text version carries the message |
 
 Values can be literals or references into the Salesforce JSON you pass in. A reference reads from `record` by default; add `"from": "result"` to read from `result`. That way numbers come from the data instead of being retyped:
 
@@ -38,14 +38,14 @@ Line items take paths into each row, so each line shows its name, quantity × pr
 }
 ```
 
-In a change preview, `lines.new` lists lines to add (shown as suggested), and a change whose `before` uses the same path as a shown value is drawn on that value. In a write result, `lines.new` shows a saved line, and `lines.added` marks the saved rows in a later read. `lines.columns` still draws the lines as a table.
+In a change preview, `lines.new` lists lines to add (shown as suggested), and a change whose `before` uses the same path as a shown value is drawn on that value. Suggested lines and changed values get a moving border, and their badges a shimmer, for about 11 seconds. Both stop when the user clicks Confirm, and neither runs with reduced motion. In a write result, saved lines show as ordinary rows. `lines.columns` still draws the lines as a table.
 
 ## Run it
 
 It needs Node 20 or later. It speaks MCP over stdio and reads no environment variables.
 
 ```bash
-npx -y --package=github:<github-username>/salesforce-mcp-app#v0.2.0 salesforce-mcp-app
+npx -y --package=github:<github-username>/salesforce-mcp-app#v0.3.0 salesforce-mcp-app
 ```
 
 As an MCP server entry:
@@ -53,7 +53,7 @@ As an MCP server entry:
 ```json
 {
   "command": "npx",
-  "args": ["-y", "--package=github:<github-username>/salesforce-mcp-app#v0.2.0", "salesforce-mcp-app"]
+  "args": ["-y", "--package=github:<github-username>/salesforce-mcp-app#v0.3.0", "salesforce-mcp-app"]
 }
 ```
 

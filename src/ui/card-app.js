@@ -165,7 +165,8 @@ const WARNING_ICON =
 const chip = (iconSvg, text, title, variant) =>
   h('span', { class: variant ? `chip ${variant}` : 'chip', title }, iconSvg ? h('span', { class: 'chip-icon', html: iconSvg, 'aria-hidden': 'true' }) : null, text);
 
-const aiPill = (text) => h('span', { class: 'ai-pill' }, h('span', { class: 'chip-icon', html: SPARKLE_ICON, 'aria-hidden': 'true' }), text);
+const aiPill = (text) =>
+  h('span', { class: 'ai-pill' }, h('span', { class: 'chip-icon', html: SPARKLE_ICON, 'aria-hidden': 'true' }), h('span', { class: 'ai-pill-text' }, text));
 const suggestionsPill = (n) => aiPill(`${n} suggestion${n === 1 ? '' : 's'}`);
 const suggestedChip = () => chip(SPARKLE_ICON, 'Suggested', undefined, 'ai');
 
@@ -204,14 +205,14 @@ function itemList(items) {
   const rows = items.map((l) => {
     const price = l.price || l.listPrice;
     const qtyPrice = l.quantity && price ? `${l.quantity} × ${price}` : l.quantity ? `Qty ${l.quantity}` : price || null;
-    const tags = [l.state === 'added' ? chip(null, 'New', undefined, 'new') : null, termChip(l), discountChip(l)].filter(Boolean);
+    const tags = [termChip(l), discountChip(l)].filter(Boolean);
     const suggested = l.state === 'suggested';
     return h(
       'div',
-      { class: `line-row${suggested ? ' suggested' : ''}${l.state === 'added' ? ' added' : ''}` },
+      { class: suggested ? 'line-row suggested' : 'line-row' },
       h('div', null, h('div', { class: 'line-name' }, lineName(l)), tags.length ? h('div', { class: 'line-meta line-tags' }, tags) : null),
       h('div', { class: 'line-amount' }, h('div', { class: 'line-total' }, lineTotal(l)), qtyPrice ? h('div', { class: 'line-meta' }, qtyPrice) : null),
-      suggested ? aiPill('Suggested') : null,
+      suggested ? aiPill('Adding quote line') : null,
     );
   });
   return h('div', { class: 'line-list' }, rows);
@@ -219,15 +220,7 @@ function itemList(items) {
 
 function lineTable(lines) {
   const head = h('tr', null, lines.columns.map((col) => h('th', { class: col.numeric ? 'num' : undefined }, col.label)));
-  const rows = lines.rows.map((r) =>
-    h(
-      'tr',
-      { class: r.added ? 'added' : undefined },
-      r.cells.map((cell, i) =>
-        h('td', { class: lines.columns[i].numeric ? 'num' : undefined }, i === 0 && r.added ? [chip(null, 'New', undefined, 'new'), ' '] : null, cell),
-      ),
-    ),
-  );
+  const rows = lines.rows.map((r) => h('tr', null, r.cells.map((cell, i) => h('td', { class: lines.columns[i].numeric ? 'num' : undefined }, cell))));
   return h('table', { class: 'data' }, h('thead', null, head), h('tbody', null, rows));
 }
 
@@ -283,7 +276,7 @@ const eyebrowOf = (...parts) => parts.filter(Boolean).join(' · ');
 
 function changeValue(ch) {
   const after = h('span', { class: 'after ai-value' }, ch.after);
-  return ch.before && ch.before !== '—' ? [h('span', { class: 'before' }, ch.before), h('span', { class: 'arrow' }, '→'), after] : after;
+  return ch.before && ch.before !== '—' ? [h('span', { class: 'before' }, ch.before), ' ', after] : after;
 }
 
 function detailRow(label, value, changed) {
@@ -356,10 +349,20 @@ function recordCard(c) {
 
 function statusBadge(status) {
   if (status === 'preview') return h('span', { class: 'badge warning' }, 'Not saved yet');
-  if (status === 'needs-input') return h('span', { class: 'badge info' }, 'Needs input');
-  if (status === 'rejected') return h('span', { class: 'badge error' }, 'Refused');
   return h('span', { class: 'badge neutral' }, 'Not saved');
 }
+
+// A record that doesn't exist yet: the whole proposal sits in one purple frame.
+const aiFrame = (label, content) => h('div', { class: 'ai-frame' }, aiPill(label), content);
+
+// A write's card is only the record as read after a successful save, passed as the tool input's `record`.
+const hasLaterRead = () => Boolean(state.input) && state.input.record !== undefined && state.input.record !== null && state.input.record !== '';
+
+// Questions, refusals and other writes draw no card; the tool's text result carries the message.
+const drawsNothing = (model) =>
+  (model.kind === 'record' && Boolean(model.error)) ||
+  (model.kind === 'quote-change' && (model.status === 'needs-input' || model.status === 'rejected')) ||
+  (model.kind === 'write-result' && !(model.status === 'saved' && hasLaterRead()));
 
 const countNewLines = (lines) => (lines && lines.style === 'items' ? lines.items.filter((l) => l.state === 'suggested').length : lines ? lines.newCount : 0);
 
@@ -373,41 +376,21 @@ function quoteChangeCard(c) {
     : null;
   const unshown = c.changes.filter((ch) => !ch.shown);
   const recordShape = c.highlights.length > 0 || c.details.length > 0 || hasLines(c.lines);
-  if (c.status === 'preview' && (c.draft || recordShape)) {
-    return recordView(c, {
-      badge: c.draft ? aiPill('Suggested') : null,
-      extraChanges: unshown,
-      afterCards: [preview, confirm.card],
-      actions: [confirm.button],
-    });
+  let node;
+  if (c.draft || recordShape) {
+    node = recordView(c, { extraChanges: unshown, afterCards: [preview, confirm.card], actions: [confirm.button] });
+    if (c.draft) node.replaceChildren(aiFrame('Creating new quote', [...node.childNodes]));
+  } else {
+    const header = card(
+      pageHeader(icon(objectIconName(c.recordType)), eyebrowOf(c.action || 'Proposed change', c.subtitle), c.title, statusBadge(c.status)),
+      headerNote(c.message && !c.summary ? h('p', { class: 'lead' }, c.message) : null),
+    );
+    const changes = c.changes.length
+      ? card(cardBody(section(['Proposed Changes', suggestedChip()], true, detailRows(c.changes.map((ch) => ({ label: ch.label, change: ch }))))))
+      : null;
+    node = stack(withFooters([header, changes, preview, confirm.card], footerLine(c.footerNote)), actionBar(linkButton(c.url), extraButtons(c.links), confirm.button));
   }
-
-  const blocked = c.status === 'rejected' || c.status === 'needs-input';
-  const header = card(
-    pageHeader(icon(objectIconName(c.recordType)), eyebrowOf(c.action || 'Proposed change', c.subtitle), c.title, statusBadge(c.status)),
-    highlightsPanel(c.highlights.length ? c.highlights : c.details),
-    headerNote(!blocked && c.message && !c.summary ? h('p', { class: 'lead' }, c.message) : null),
-  );
-  const banner = blocked
-    ? card(
-        h(
-          'div',
-          { class: `banner ${c.status === 'rejected' ? 'error' : 'info'}` },
-          h('strong', null, c.status === 'rejected' ? 'Salesforce refused this change.' : 'More input needed.'),
-          ' ',
-          c.message || '',
-        ),
-      )
-    : null;
-  const changes = c.changes.length
-    ? card(cardBody(section(['Proposed Changes', suggestedChip()], true, detailRows(c.changes.map((ch) => ({ label: ch.label, change: ch }))))))
-    : null;
-  const lines = hasLines(c.lines) ? linesCard(c.lines, c.totals, { open: countNewLines(c.lines) > 0 }) : null;
-  const cards = withFooters(
-    structured ? [header, banner, changes, lines, preview, confirm.card] : [header, banner, changes, preview, lines, confirm.card],
-    footerLine(c.footerNote),
-  );
-  return stack(cards, actionBar(linkButton(c.url), extraButtons(c.links), confirm.button));
+  return node;
 }
 
 const warnItem = (text) => h('li', { class: 'warn' }, h('span', { class: 'warn-icon', html: WARNING_ICON, 'aria-label': 'Warning:' }), text);
@@ -426,6 +409,7 @@ function confirmSection(c, summaryShown) {
 function confirmButton(c, list) {
   const button = h('button', { class: 'btn brand', type: 'button' }, 'Confirm');
   button.addEventListener('click', async () => {
+    document.getElementById('root').classList.add('settled');
     button.disabled = true;
     try {
       const text = `confirm: ${eyebrowOf(c.action, c.title, c.subtitle)}`;
@@ -439,22 +423,12 @@ function confirmButton(c, list) {
   return button;
 }
 
+// A successful save shows the record as it is now, with nothing marking the save.
+const plainLines = (lines) =>
+  lines && (lines.style === 'items' ? { ...lines, items: lines.items.map((l) => ({ ...l, state: 'existing' })) } : { ...lines, rows: lines.rows.map((r) => ({ ...r, added: false })) });
+
 function writeResultCard(c) {
-  const failed = c.status === 'failed';
-  const saved = c.status === 'saved';
-  const badge = saved ? h('span', { class: 'badge success' }, 'Saved') : failed ? h('span', { class: 'badge error' }, 'Not saved') : h('span', { class: 'badge neutral' }, 'Not saved yet');
-  const header = card(
-    pageHeader(icon(objectIconName(c.recordType)), eyebrowOf(c.recordType, c.subtitle), c.title, badge),
-    highlightsPanel(c.details),
-    headerNote(
-      !failed && c.message ? h('p', { class: 'lead' }, c.message) : null,
-      c.pendingNote ? note('info', [c.pendingNote]) : null,
-      c.notes.length ? note('warning', c.notes) : null,
-    ),
-  );
-  const banner = failed && c.message ? card(h('div', { class: 'banner error' }, c.message)) : null;
-  const lines = hasLines(c.lines) ? linesCard(c.lines, c.totals) : c.totals.length ? card(cardBody(section('Totals', true, totalsRow(c.totals)))) : null;
-  return stack(withFooters([header, banner, lines], footerLine(c.footerNote)), actionBar(linkButton(c.url), extraButtons(c.links)));
+  return recordView({ ...c, kind: 'record', highlights: c.details, details: [], stage: undefined, lines: plainLines(c.lines), notes: [], otherRecords: 0 });
 }
 
 const SALESFORCE_LOGO =
@@ -473,7 +447,7 @@ function renderNothing() {
 }
 
 function render(model) {
-  if (model.kind === 'record' && model.error) {
+  if (drawsNothing(model)) {
     renderNothing();
     document.body.dataset.rendered = model.kind;
     return;
@@ -498,9 +472,11 @@ function renderFrom(model, source) {
 
 // scrollHeight never drops below the iframe's current height, so collapsing a
 // section would never shrink the frame; the root element's own height does.
+// Some hosts ignore a height of 0 and keep the frame's last height, so a card
+// that draws nothing reports 1px.
 new ResizeObserver(() => {
   const el = document.documentElement;
-  notify('ui/notifications/size-changed', { width: el.scrollWidth, height: Math.ceil(el.getBoundingClientRect().height) });
+  notify('ui/notifications/size-changed', { width: el.scrollWidth, height: Math.max(1, Math.ceil(el.getBoundingClientRect().height)) });
 }).observe(document.documentElement);
 
 start();

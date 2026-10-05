@@ -109,6 +109,19 @@ const account = (n, Name, extra = {}) => ({
 
 const STAGES = ['Prospecting', 'Qualification', 'Needs Analysis', 'Proposal', 'Negotiation', 'Closed Won'];
 
+function product(n, name, quantity, unitPrice, listPrice) {
+  return {
+    attributes: { type: 'OpportunityLineItem' },
+    Id: `00kEXAMPLE0000${n}AAA`,
+    Product2: named('Product2', name),
+    Quantity: quantity,
+    UnitPrice: unitPrice,
+    ListPrice: listPrice,
+    TotalPrice: Math.round(unitPrice * quantity * 100) / 100,
+  };
+}
+const PRODUCTS = [product(1, 'Pro Plan – Seat', 200, 108, 120), product(2, 'Storage Add-on (1 TB)', 5, 2000, 2000), product(3, 'Analytics Add-on – Seat', 50, 48, 60)];
+
 const opportunityCard = (read) => ({
   record: read,
   instanceUrl: INSTANCE,
@@ -128,6 +141,13 @@ const opportunityCard = (read) => ({
     { label: 'Description', value: { path: 'Description' } },
   ],
 });
+
+const opportunityProductLines = {
+  title: 'Products',
+  rows: { path: 'OpportunityLineItems.records' },
+  item: { name: 'Product2.Name', quantity: 'Quantity', price: 'UnitPrice', listPrice: 'ListPrice', total: 'TotalPrice' },
+  recordType: 'OpportunityLineItem',
+};
 
 const accountCard = (read, extra = {}) => ({
   record: read,
@@ -156,6 +176,9 @@ const QUOTE_HIGHLIGHTS = [
   { label: 'Account', value: { path: 'Account.Name' } },
   { label: 'Expiration Date', value: { path: 'ExpirationDate' }, type: 'date' },
 ];
+
+// An approval status as a path: only the forward steps go in it, so a rejection shows after them.
+const APPROVAL_STAGES = { steps: ['Draft', 'Submitted', 'Approved'], current: { path: 'Example_Review_Status__c' } };
 
 const QUOTE_FIELDS = [
   { label: 'Payment Terms', value: { path: 'Example_Payment_Terms__c' } },
@@ -271,6 +294,16 @@ export const FIXTURES = [
     args: opportunityCard(opportunity('Closed Lost', { Probability: 0, ForecastCategoryName: 'Omitted' })),
   },
   { id: 'opportunity-off-path', group: 'Record', label: 'Opportunity · off-path stage', kind: 'record', args: opportunityCard(opportunity('On Hold')) },
+  {
+    id: 'opportunity-products',
+    group: 'Record',
+    label: 'Opportunity with products',
+    kind: 'record',
+    args: {
+      ...opportunityCard(opportunity('Proposal', { Amount: 41600, OpportunityLineItems: { totalSize: 3, done: true, records: PRODUCTS } })),
+      lines: opportunityProductLines,
+    },
+  },
   { id: 'account', group: 'Record', label: 'Account', kind: 'record', args: accountCard({ records: [account(1, 'Example Co.')] }) },
   {
     id: 'account-search',
@@ -286,6 +319,20 @@ export const FIXTURES = [
     }),
   },
   { id: 'quote', group: 'Record', label: 'Quote with 4 lines', kind: 'record', args: quoteCard(quote()) },
+  {
+    id: 'quote-approval',
+    group: 'Record',
+    label: 'Quote · approval path',
+    kind: 'record',
+    args: { ...quoteCard(quote(BASE_LINES, { Example_Review_Status__c: 'Submitted' })), stages: APPROVAL_STAGES },
+  },
+  {
+    id: 'quote-approval-rejected',
+    group: 'Record',
+    label: 'Quote · approval rejected (off the path)',
+    kind: 'record',
+    args: { ...quoteCard(quote(BASE_LINES, { Example_Review_Status__c: 'Rejected' })), stages: APPROVAL_STAGES },
+  },
   {
     id: 'quote-table',
     group: 'Record',
@@ -328,7 +375,7 @@ export const FIXTURES = [
   {
     id: 'edit-preview',
     group: 'Change preview',
-    label: 'Edit quote fields · before → after',
+    label: 'Edit quote fields · old and new values',
     kind: 'quote-change',
     args: {
       ...quoteCard(quote()),
@@ -391,7 +438,7 @@ export const FIXTURES = [
   {
     id: 'needs-input',
     group: 'Change preview',
-    label: 'Needs input',
+    label: 'Needs input · text only, no card',
     kind: 'quote-change',
     args: {
       result: { message: '“Pro” matches 3 products: Pro Plan – Seat, Pro Plan – Usage, Pro Plan – Support. Which one?' },
@@ -406,7 +453,7 @@ export const FIXTURES = [
   {
     id: 'rejected',
     group: 'Change preview',
-    label: 'Refused',
+    label: 'Refused · text only, no card',
     kind: 'quote-change',
     args: {
       result: { message: 'A discount above 30% needs finance approval. Lower the discount, or ask finance to approve it.' },
@@ -441,7 +488,7 @@ export const FIXTURES = [
   {
     id: 'saved-line',
     group: 'Write result',
-    label: 'Line added · no later read',
+    label: 'Line added · no later read · text only, no card',
     kind: 'write-result',
     args: {
       result: SAVED_LINE_RESULT,
@@ -458,7 +505,7 @@ export const FIXTURES = [
   {
     id: 'saved-quote',
     group: 'Write result',
-    label: 'Quote created',
+    label: 'Quote created · no later read · text only, no card',
     kind: 'write-result',
     args: {
       result: { quote: { name: 'Example Co. – Expansion', number: 'Q-0002', opportunity: 'Example Co. – Expansion', lines: 3 }, message: 'Created Q-0002 with 3 lines.' },
@@ -478,7 +525,7 @@ export const FIXTURES = [
   {
     id: 'saved-fields',
     group: 'Write result',
-    label: 'Quote fields updated',
+    label: 'Quote fields updated · no later read · text only, no card',
     kind: 'write-result',
     args: {
       result: { success: true, id: QUOTE_ID, message: 'Updated Expiration Date, Payment Terms and Billing Notes.' },
@@ -498,7 +545,7 @@ export const FIXTURES = [
   {
     id: 'save-failed',
     group: 'Write result',
-    label: 'Save failed',
+    label: 'Save failed · text only, no card',
     kind: 'write-result',
     args: {
       result: { success: false, errors: [{ message: 'The expiration date can’t be after the opportunity close date (Nov 14, 2026).' }] },
