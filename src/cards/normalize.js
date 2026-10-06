@@ -6,7 +6,7 @@
 import { formatValue, isEmpty, isNumericType, isPlainObject, lightningRecordUrl, safeHttpsUrl } from './format.js';
 
 // Bumped when the card model changes shape; the card rebuilds older models from the tool input.
-export const MODEL_VERSION = 4;
+export const MODEL_VERSION = 5;
 
 const MAX_FIELDS = 30;
 const MAX_ROWS = 50;
@@ -447,6 +447,27 @@ const saysTheSame = (a, b) => {
 // An option's approval note goes first among its notes, unless a note already says it.
 const withApprovalNote = (notes, note) => (!note || notes.some((n) => saysTheSame(n, note)) ? notes : [note, ...notes]);
 
+// Lines of the same kind count as one product across options, so "Standard Support" on one
+// and "Premium Support" on another are both the support line; any other line is its own kind.
+const PRODUCT_KINDS = [
+  ['license', /licen[cs]e|\bseats?\b/i],
+  ['pre-commit', /pre-?commit/i],
+  ['support', /support/i],
+];
+const productKind = (name) => (PRODUCT_KINDS.find(([, re]) => re.test(name)) || [name])[0];
+const itemsOf = (o) => (o.lines && o.lines.style === 'items' && o.lines.items.length ? o.lines.items : null);
+
+// What each option leaves out that another option has, such as "No support line".
+function missingProducts(options) {
+  const kinds = [...new Set(options.flatMap((o) => (itemsOf(o) || []).map((l) => productKind(l.name))))];
+  return options.map((o) => {
+    const items = itemsOf(o);
+    if (!items) return [];
+    const has = new Set(items.map((l) => productKind(l.name)));
+    return kinds.filter((k) => !has.has(k)).map((k) => (PRODUCT_KINDS.some(([kind]) => kind === k) ? `No ${k} line` : `No ${k}`));
+  });
+}
+
 export function buildQuoteOptionsCard(args = {}) {
   const mode = MODES.includes(args.mode) ? args.mode : 'preview';
   const build = mode === 'created' ? buildRecordCard : buildQuoteChangeCard;
@@ -461,7 +482,13 @@ export function buildQuoteOptionsCard(args = {}) {
   const drawn = all.filter((o) => mode === 'created' || o.status === 'preview');
   const options = drawn.slice(0, SHOWN_OPTIONS);
   const together = options.length > 1 ? options.length : 0;
-  const preview = (o) => ({ ...o, notes: withApprovalNote(o.notes, o.approvalNote), confirmHint: numberedHint(o.confirmHint, o.number, together) });
+  const missing = missingProducts(options);
+  const preview = (o, i) => ({
+    ...o,
+    notes: withApprovalNote(o.notes, o.approvalNote),
+    confirmHint: numberedHint(o.confirmHint, o.number, together),
+    missing: missing[i],
+  });
   return {
     kind: 'quote-options',
     v: MODEL_VERSION,

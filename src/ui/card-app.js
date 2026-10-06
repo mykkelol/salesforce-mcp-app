@@ -275,12 +275,12 @@ function actionBar(...buttons) {
   return shown.length ? h('div', { class: 'actions' }, shown) : null;
 }
 
-function pageHeader(iconNode, eyebrow, title, actions) {
+function pageHeader(iconNode, eyebrow, title, actions, meta) {
   return h(
     'div',
     { class: 'page-header' },
     iconNode,
-    h('div', { class: 'grow' }, eyebrow ? h('div', { class: 'eyebrow' }, eyebrow) : null, h('div', { class: 'title' }, title)),
+    h('div', { class: 'grow' }, eyebrow ? h('div', { class: 'eyebrow' }, eyebrow) : null, h('div', { class: 'title' }, title), meta),
     actions ? h('div', { class: 'header-actions' }, actions) : null,
   );
 }
@@ -451,7 +451,7 @@ function quoteChangeCard(c) {
 const warnItem = (text) => h('li', { class: 'warn' }, h('span', { class: 'warn-icon', html: WARNING_ICON, 'aria-label': 'Warning:' }), text);
 
 // Items the expanded preview text already says are left out.
-function confirmSection(c, summaryShown) {
+function confirmSection(c, summaryShown, open = false) {
   const fresh = (item) => !summaryShown || !c.summary.includes(item);
   const warnings = c.notes.filter(fresh);
   if (c.status !== 'preview') return { card: warnings.length ? card(cardBody(note('warning', warnings))) : null, button: null };
@@ -461,7 +461,7 @@ function confirmSection(c, summaryShown) {
     ? h('span', { class: 'summary-warn', html: WARNING_ICON, role: 'img', 'aria-label': plural(warnings.length, 'note'), title: plural(warnings.length, 'note') })
     : null;
   const title = ['When You Confirm', summary(`Reply “${replyWord(c)}”`), flag];
-  return { card: card(cardBody(section(title, false, list))), button: canMessage() ? confirmButton(c, list) : null };
+  return { card: card(cardBody(section(title, open, list))), button: canMessage() ? confirmButton(c, list) : null };
 }
 
 const replyWord = (c) => (c.number ? `confirm ${c.number}` : 'confirm');
@@ -557,13 +557,23 @@ function savedQuoteCard(c) {
   return recordView({ ...c, eyebrow, submitHint }, { actions: [submit] });
 }
 
-function submitPrompt(options) {
-  const replies = orList(options.map((o) => `“submit ${o.number}”`));
-  const text =
-    options.length === 1
-      ? `Quote created. Reply ${replies} to make it the primary quote and submit it for approval.`
-      : `${plural(options.length, 'quote')} created. Pick one to be the primary quote and submit it for approval: reply ${replies}.`;
-  return card(cardBody(h('p', { class: 'lead prompt' }, text)));
+// A quote that would be created, drawn like the quote card. Collapsed, its header still
+// says what it leaves out next to the other options; open, it shows its products and
+// what confirming it does.
+function previewOptionCard(o) {
+  if (!hasLines(o.lines) || o.lines.style !== 'items') return quoteChangeCard(o);
+  const items = o.lines.items;
+  const missing = o.missing || [];
+  const meta = h('div', { class: 'option-meta' }, h('span', null, plural(items.length, 'product')), missing.map((m) => h('span', { class: 'chip missing' }, m)));
+  const header = card(pageHeader(icon(objectIconName(o.recordType)), o.eyebrow, o.title, null, meta));
+  const list = itemList(items);
+  missing.forEach((m) => list.append(h('div', { class: 'line-row missing' }, h('div', { class: 'line-name' }, m))));
+  const title = [o.lines.title, summary(plural(items.length, 'item'), totalSummary(o.totals))];
+  const products = card(cardBody(section(title, true, list, totalsRow(o.totals, true), o.lines.note ? h('p', { class: 'footnote' }, o.lines.note) : null)));
+  const confirm = confirmSection(o, false, true);
+  const node = stack(withFooters([header, products, confirm.card], footerLine(o.footerNote)), actionBar(linkButton(o.url), extraButtons(o.links), confirm.button));
+  node.replaceChildren(aiFrame('Creating new quote', [...node.childNodes]));
+  return node;
 }
 
 function confirmPrompt(options) {
@@ -575,9 +585,9 @@ function confirmPrompt(options) {
 function quoteOptionsCard(c) {
   if (c.mode === 'created') {
     const rows = c.options.map((o) => collapsible(savedQuoteCard(o)));
-    return h('div', { class: 'stack batch' }, submitPrompt(c.options), rows, moreQuotes(c.more, true));
+    return h('div', { class: 'stack batch' }, rows, moreQuotes(c.more, true));
   }
-  const rows = c.options.map((o) => collapsible(quoteChangeCard({ ...o, eyebrow: eyebrowOf(`Option ${o.number}`, o.label) })));
+  const rows = c.options.map((o) => collapsible(previewOptionCard({ ...o, eyebrow: eyebrowOf(`Option ${o.number}`, o.label) })));
   return h('div', { class: 'stack batch' }, confirmPrompt(c.options), rows, moreQuotes(c.more, false), confirmAllBar(c.options));
 }
 

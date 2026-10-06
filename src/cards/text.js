@@ -136,7 +136,8 @@ export function quoteOptionsText(card) {
   if (card.mode === 'created') return savedOptionsText(card);
   const shown = card.options.map((o) => {
     const head = changeHead(o);
-    return [`${optionName(o)}${head ? `: ${head}` : ''}`, ...previewLines(o), o.confirmHint, o.footerNote].filter(Boolean).join('\n');
+    const missing = o.missing && o.missing.length ? `${o.missing.join(', ')}.` : null;
+    return [`${optionName(o)}${head ? `: ${head}` : ''}`, missing, ...previewLines(o), o.confirmHint, o.footerNote].filter(Boolean).join('\n');
   });
   const refused = card.refused.map((o) => {
     const why = o.status === 'rejected' ? 'it was refused' : 'it needs more input';
