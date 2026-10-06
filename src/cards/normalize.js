@@ -6,7 +6,7 @@
 import { formatValue, isEmpty, isNumericType, isPlainObject, lightningRecordUrl, safeHttpsUrl } from './format.js';
 
 // Bumped when the card model changes shape; the card rebuilds older models from the tool input.
-export const MODEL_VERSION = 3;
+export const MODEL_VERSION = 4;
 
 const MAX_FIELDS = 30;
 const MAX_ROWS = 50;
@@ -123,12 +123,16 @@ function fieldList(list, sources, currency, max = MAX_FIELDS) {
     .map((f) => ({ f, raw: resolve(f.value, sources) }))
     .filter(({ raw }) => !isEmpty(raw))
     .slice(0, max)
-    .map(({ f, raw }) => ({
-      label: f.label,
-      value: formatValue(raw, f.type, f.currency || currency),
-      key: refKey(f.value),
-      ...(f.main === true ? { main: true } : {}),
-    }));
+    .map(({ f, raw }) => {
+      const url = safeHttpsUrl(textOf(f.url, sources));
+      return {
+        label: f.label,
+        value: formatValue(raw, f.type, f.currency || currency),
+        key: refKey(f.value),
+        ...(url ? { url } : {}),
+        ...(f.main === true ? { main: true } : {}),
+      };
+    });
 }
 
 // Field entries carry their source path only while changes are matched to them.
@@ -427,6 +431,22 @@ function numberedHint(hint, number, together) {
 
 const MODES = ['preview', 'created'];
 
+const plainText = (s) =>
+  s
+    .toLowerCase()
+    .replace(/[“”"‘’']/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[\s.!]+$/, '')
+    .trim();
+const saysTheSame = (a, b) => {
+  const x = plainText(a);
+  const y = plainText(b);
+  return Boolean(x && y) && (x === y || x.includes(y) || y.includes(x));
+};
+
+// An option's approval note goes first among its notes, unless a note already says it.
+const withApprovalNote = (notes, note) => (!note || notes.some((n) => saysTheSame(n, note)) ? notes : [note, ...notes]);
+
 export function buildQuoteOptionsCard(args = {}) {
   const mode = MODES.includes(args.mode) ? args.mode : 'preview';
   const build = mode === 'created' ? buildRecordCard : buildQuoteChangeCard;
@@ -441,11 +461,12 @@ export function buildQuoteOptionsCard(args = {}) {
   const drawn = all.filter((o) => mode === 'created' || o.status === 'preview');
   const options = drawn.slice(0, SHOWN_OPTIONS);
   const together = options.length > 1 ? options.length : 0;
+  const preview = (o) => ({ ...o, notes: withApprovalNote(o.notes, o.approvalNote), confirmHint: numberedHint(o.confirmHint, o.number, together) });
   return {
     kind: 'quote-options',
     v: MODEL_VERSION,
     mode,
-    options: mode === 'created' ? options : options.map((o) => ({ ...o, confirmHint: numberedHint(o.confirmHint, o.number, together) })),
+    options: mode === 'created' ? options : options.map(preview),
     more: Math.max(0, drawn.length - SHOWN_OPTIONS),
     refused: all
       .filter((o) => !drawn.includes(o))

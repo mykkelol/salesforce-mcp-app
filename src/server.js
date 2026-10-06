@@ -12,10 +12,10 @@ export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 const MAX_INPUT_CHARS = 200_000;
 
 export const CARD_URIS = {
-  record: 'ui://salesforce-mcp-app/record-card-v5.html',
-  'quote-change': 'ui://salesforce-mcp-app/quote-change-v3.html',
-  'quote-options': 'ui://salesforce-mcp-app/quote-options-v5.html',
-  'write-result': 'ui://salesforce-mcp-app/write-result-v3.html',
+  record: 'ui://salesforce-mcp-app/record-card-v6.html',
+  'quote-change': 'ui://salesforce-mcp-app/quote-change-v4.html',
+  'quote-options': 'ui://salesforce-mcp-app/quote-options-v6.html',
+  'write-result': 'ui://salesforce-mcp-app/write-result-v4.html',
 };
 
 // Cards already in a chat point at these. They get the current card, which
@@ -26,10 +26,15 @@ export const CARD_URIS = {
 const UI_META = { prefersBorder: false, csp: { resourceDomains: ['data:'] } };
 
 const LEGACY_URIS = {
-  record: ['ui://salesforce-mcp-app/record-card-v3.html', 'ui://salesforce-mcp-app/record-card-v2.html', 'ui://salesforce-mcp-app/record-card-v1.html'],
-  'quote-change': ['ui://salesforce-mcp-app/quote-change-v2.html', 'ui://salesforce-mcp-app/quote-change-v1.html'],
-  'quote-options': ['ui://salesforce-mcp-app/quote-options-v4.html'],
-  'write-result': ['ui://salesforce-mcp-app/write-result-v2.html', 'ui://salesforce-mcp-app/write-result-v1.html'],
+  record: [
+    'ui://salesforce-mcp-app/record-card-v5.html',
+    'ui://salesforce-mcp-app/record-card-v3.html',
+    'ui://salesforce-mcp-app/record-card-v2.html',
+    'ui://salesforce-mcp-app/record-card-v1.html',
+  ],
+  'quote-change': ['ui://salesforce-mcp-app/quote-change-v3.html', 'ui://salesforce-mcp-app/quote-change-v2.html', 'ui://salesforce-mcp-app/quote-change-v1.html'],
+  'quote-options': ['ui://salesforce-mcp-app/quote-options-v5.html', 'ui://salesforce-mcp-app/quote-options-v4.html'],
+  'write-result': ['ui://salesforce-mcp-app/write-result-v3.html', 'ui://salesforce-mcp-app/write-result-v2.html', 'ui://salesforce-mcp-app/write-result-v1.html'],
 };
 
 const INSTRUCTIONS =
@@ -54,8 +59,10 @@ const Notes = z.union([z.array(Val), Ref]);
 const ValueType = z
   .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'url'])
   .describe('How to format the value. Percent values are whole numbers: 15 means 15%.');
-const Field = z.object({ label: z.string(), value: Val, type: ValueType.optional(), currency: z.string().optional() });
-const Total = Field.extend({ main: z.boolean().optional().describe('The headline total, shown in bold. Defaults to the last one.') });
+const Value = { label: z.string(), value: Val, type: ValueType.optional(), currency: z.string().optional() };
+// A plain string: allowing a reference here would add about 500 tokens to every host's tool list.
+const Field = z.object({ ...Value, url: z.string().optional().describe('https link to the record it names') });
+const Total = z.object({ ...Value, main: z.boolean().optional().describe('The headline total, shown in bold. Defaults to the last one.') });
 const RowPath = z.string().optional();
 const Lines = z
   .object({
@@ -177,7 +184,7 @@ const quoteChange = {
 
 const optionKeys = {
   label: Text.describe('A short name for the option, for example "Standard support".'),
-  approvalNote: Text.optional().describe('Shown under the option’s name, for example that its discount needs approval.'),
+  approvalNote: Text.optional().describe('For example that its discount needs approval. Shown with its notes, unless a note already says it.'),
 };
 const OPTION_SHAPES = {
   preview: { tool: 'show_quote_change', schema: z.object({ ...optionKeys, ...quoteChange }) },
@@ -245,7 +252,7 @@ const TOOLS = [
       'Shows 2 or 3 alternative quotes for one request as numbered options, so the user can compare them and pick. ' +
       'Each option has a short `label` such as "Standard support" and an optional `approvalNote`. Before anything ' +
       'is saved (`mode` preview, the default), each option takes the same input as a show_quote_change preview of a ' +
-      'new quote; the first opens, the others collapse to their headers, and the user replies "confirm 1", ' +
+      'new quote; every option starts collapsed, and the user replies "confirm 1", ' +
       '"confirm 2" or "confirm 3" for one quote, or "confirm all" for every one shown. An option with status ' +
       '`needs-input` or `rejected` isn’t drawn, and the text version carries its message. After the quotes are ' +
       'saved (`mode` created), each option takes the same input as a show_record_card card of the saved quote, ' +

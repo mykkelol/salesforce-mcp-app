@@ -162,6 +162,9 @@ const SPARKLE_ICON =
 const WARNING_ICON =
   '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5 15 14H1z"/><path d="M8 6v3.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.75" r="0.85" fill="#fff"/></svg>';
 
+const CHEVRON_DOWN =
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>';
+
 const chip = (iconSvg, text, title, variant) =>
   h('span', { class: variant ? `chip ${variant}` : 'chip', title }, iconSvg ? h('span', { class: 'chip-icon', html: iconSvg, 'aria-hidden': 'true' }) : null, text);
 
@@ -190,10 +193,13 @@ function discountChip(l) {
   return chip(TAG_ICON, `${l.discount} off ${l.listPrice}`);
 }
 
-function lineName(l) {
-  if (!l.url) return l.name;
-  return h('a', { class: 'record-link', href: '#', title: l.url, onclick: (e) => (e.preventDefault(), openLink(l.url)) }, l.name);
+// A link to a record, opened through the host. It never toggles the section or option it sits in.
+function recordLink(text, url) {
+  if (!url) return text;
+  return h('a', { class: 'record-link', href: '#', title: url, onclick: (e) => (e.preventDefault(), e.stopPropagation(), openLink(url)) }, text);
 }
+
+const lineName = (l) => recordLink(l.name, l.url);
 
 function lineTotal(l) {
   if (l.total !== 'Pending') return l.total || '—';
@@ -226,19 +232,30 @@ function lineTable(lines) {
 
 const hasLines = (lines) => Boolean(lines) && (lines.style === 'items' ? lines.items.length > 0 : lines.rows.length > 0);
 
-function linesCard(lines, totals, { open = true } = {}) {
+// Every section starts collapsed, so its header says what's inside.
+const summary = (...parts) => {
+  const text = eyebrowOf(...parts);
+  return text ? h('span', { class: 'count' }, text) : null;
+};
+const mainTotal = (totals) => (totals && totals.length ? totals.find((t) => t.main) || totals[totals.length - 1] : null);
+const totalSummary = (totals) => {
+  const main = mainTotal(totals);
+  return main ? `${main.label} ${main.value}` : null;
+};
+
+function linesCard(lines, totals) {
   const suggested = lines.style === 'items' ? lines.items.filter((l) => l.state === 'suggested').length : 0;
   const existing = lines.style === 'items' ? lines.items.length - suggested : lines.rows.length;
-  const title = [lines.title, h('span', { class: 'count' }, `${existing} item${existing === 1 ? '' : 's'}`), suggested ? suggestionsPill(suggested) : null];
+  const title = [lines.title, summary(`${existing} item${existing === 1 ? '' : 's'}`, totalSummary(totals)), suggested ? suggestionsPill(suggested) : null];
   const body = lines.style === 'items' ? itemList(lines.items) : lineTable(lines);
-  return card(cardBody(section(title, open, body, totalsRow(totals, true), lines.note ? h('p', { class: 'footnote' }, lines.note) : null)));
+  return card(cardBody(section(title, false, body, totalsRow(totals, true), lines.note ? h('p', { class: 'footnote' }, lines.note) : null)));
 }
 
 const isZero = (value) => /^[^\d-]*-?0(\.0+)?$/.test(String(value).replace(/[,\s%]/g, ''));
 
 function totalsRow(totals, wide) {
   if (!totals || !totals.length) return null;
-  const main = totals.find((t) => t.main) || totals[totals.length - 1];
+  const main = mainTotal(totals);
   const shown = totals.filter((t) => t === main || (t.value !== main.value && !isZero(t.value)));
   const amount = (t) => (/discount/i.test(t.label) && !/^[-−]/.test(t.value) ? `−${t.value}` : t.value);
   return h(
@@ -283,7 +300,9 @@ function detailRow(label, value, changed) {
   return h('div', { class: changed ? 'detail changed' : 'detail' }, h('div', { class: 'field-label' }, label), h('div', { class: 'field-value' }, value));
 }
 
-const detailRows = (details) => h('div', { class: 'details' }, details.map((f) => detailRow(f.label, f.change ? changeValue(f.change) : f.value, Boolean(f.change))));
+const fieldValue = (f) => (f.change ? changeValue(f.change) : recordLink(f.value, f.url));
+
+const detailRows = (details) => h('div', { class: 'details' }, details.map((f) => detailRow(f.label, fieldValue(f), Boolean(f.change))));
 
 function note(kind, items) {
   return h('div', { class: `note ${kind}` }, items.length === 1 ? items[0] : h('ul', { class: 'list' }, items.map((w) => h('li', null, w))));
@@ -299,8 +318,7 @@ function markdownBlock(md) {
   return h('div', { class: 'md', html: markdownToHtml(md), onclick });
 }
 
-const highlightsPanel = (fields) =>
-  fields.length ? h('div', { class: 'highlights' }, fields.map((f) => field(f.label, f.change ? changeValue(f.change) : f.value, Boolean(f.change)))) : null;
+const highlightsPanel = (fields) => (fields.length ? h('div', { class: 'highlights' }, fields.map((f) => field(f.label, fieldValue(f), Boolean(f.change)))) : null);
 const headerNote = (...children) => (children.some(Boolean) ? h('div', { class: 'header-note' }, children) : null);
 const footerLine = (text) => (text ? h('div', { class: 'card-footer' }, text) : null);
 
@@ -330,10 +348,10 @@ function recordView(c, { badge, extraChanges = [], afterCards = [], actions = []
   const details = [...extraChanges.map((ch) => ({ label: ch.label, change: ch })), ...c.details];
   const suggestions = details.filter((f) => f.change).length;
   const sections = [];
-  if (!hasLines(c.lines) && c.totals.length) sections.push(section('Totals', true, totalsRow(c.totals)));
+  if (!hasLines(c.lines) && c.totals.length) sections.push(section(['Totals', summary(totalSummary(c.totals))], false, totalsRow(c.totals)));
   if (details.length) {
-    const title = ['Information', h('span', { class: 'count' }, `${details.length} field${details.length === 1 ? '' : 's'}`), suggestions ? suggestionsPill(suggestions) : null];
-    sections.push(section(title, suggestions > 0, detailRows(details)));
+    const title = ['Information', summary(`${details.length} field${details.length === 1 ? '' : 's'}`), suggestions ? suggestionsPill(suggestions) : null];
+    sections.push(section(title, false, detailRows(details)));
   }
   const info = sections.length ? card(cardBody(sections)) : null;
   const lines = hasLines(c.lines) ? linesCard(c.lines, c.totals) : null;
@@ -372,8 +390,8 @@ function triggersCard(t, hint) {
     t.note ? h('p', { class: 'trigger-note small muted' }, t.note) : null,
     hint ? h('p', { class: 'trigger-note' }, hint) : null,
   ];
-  const title = ['What This Triggers', h('span', { class: 'count' }, triggersSummary(t))];
-  return h('div', { class: 'card triggers' }, cardBody(section(title, true, body)));
+  const title = ['What This Triggers', summary(triggersSummary(t))];
+  return h('div', { class: 'card triggers' }, cardBody(section(title, false, body)));
 }
 
 function statusBadge(status) {
@@ -396,13 +414,20 @@ const drawsNothing = (model) =>
 
 const countNewLines = (lines) => (lines && lines.style === 'items' ? lines.items.filter((l) => l.state === 'suggested').length : lines ? lines.newCount : 0);
 
+// The first line of the tool's preview text, as the header of its collapsed section.
+function firstLine(md) {
+  const line = (markdownToTextLines(md)[0] || '').replace(/^•\s*/, '');
+  return line.length > 72 ? `${line.slice(0, 71).trimEnd()}…` : line;
+}
+
 function quoteChangeCard(c) {
-  const proposalTitle = [c.draft ? `Proposed ${c.recordType}` : 'Proposed Change', suggestedChip()];
+  const lead = summary(c.summary && firstLine(c.summary));
+  const proposalTitle = [c.draft ? `Proposed ${c.recordType}` : 'Proposed Change', lead, suggestedChip()];
   // The tool's own preview text leads when nothing else shows the change.
   const structured = c.changes.length > 0 || countNewLines(c.lines) > 0 || (c.draft && hasLines(c.lines));
   const confirm = confirmSection(c, Boolean(c.summary) && !structured);
   const preview = c.summary
-    ? card(cardBody(structured ? section('Salesforce Preview', false, markdownBlock(c.summary)) : section(proposalTitle, true, markdownBlock(c.summary))))
+    ? card(cardBody(structured ? section(['Salesforce Preview', lead], false, markdownBlock(c.summary)) : section(proposalTitle, false, markdownBlock(c.summary))))
     : null;
   const unshown = c.changes.filter((ch) => !ch.shown);
   const recordShape = c.highlights.length > 0 || c.details.length > 0 || hasLines(c.lines);
@@ -416,7 +441,7 @@ function quoteChangeCard(c) {
       headerNote(c.message && !c.summary ? h('p', { class: 'lead' }, c.message) : null),
     );
     const changes = c.changes.length
-      ? card(cardBody(section(['Proposed Changes', suggestedChip()], true, detailRows(c.changes.map((ch) => ({ label: ch.label, change: ch }))))))
+      ? card(cardBody(section(['Proposed Changes', summary(plural(c.changes.length, 'change')), suggestedChip()], false, detailRows(c.changes.map((ch) => ({ label: ch.label, change: ch }))))))
       : null;
     node = stack(withFooters([header, changes, preview, confirm.card], footerLine(c.footerNote)), actionBar(linkButton(c.url), extraButtons(c.links), confirm.button));
   }
@@ -432,8 +457,14 @@ function confirmSection(c, summaryShown) {
   if (c.status !== 'preview') return { card: warnings.length ? card(cardBody(note('warning', warnings))) : null, button: null };
   const hint = c.confirmHint || (canMessage() ? 'Not saved until you confirm.' : 'Not saved until you reply “confirm” in the chat.');
   const list = h('ul', { class: 'list' }, warnings.map(warnItem), c.consequences.filter(fresh).map((w) => h('li', null, w)), h('li', null, hint));
-  return { card: card(cardBody(section('When You Confirm', true, list))), button: canMessage() ? confirmButton(c, list) : null };
+  const flag = warnings.length
+    ? h('span', { class: 'summary-warn', html: WARNING_ICON, role: 'img', 'aria-label': plural(warnings.length, 'note'), title: plural(warnings.length, 'note') })
+    : null;
+  const title = ['When You Confirm', summary(`Reply “${replyWord(c)}”`), flag];
+  return { card: card(cardBody(section(title, false, list))), button: canMessage() ? confirmButton(c, list) : null };
 }
+
+const replyWord = (c) => (c.number ? `confirm ${c.number}` : 'confirm');
 
 const canMessage = () => Boolean(state.host.capabilities && state.host.capabilities.message);
 
@@ -458,24 +489,21 @@ const optionOrRoot = (button) => button.closest('.batch-item') || document.getEl
 const refusedNote = (reply) => warnItem(`The chat didn’t accept the message. Reply “${reply}” instead.`);
 
 function confirmButton(c, list) {
-  const reply = c.number ? `confirm ${c.number}` : 'confirm';
+  const reply = replyWord(c);
   const text = `${reply}: ${c.number ? eyebrowOf(c.label, c.title) : eyebrowOf(c.action, c.title, c.subtitle)}`;
   return replyButton('Confirm', text, optionOrRoot, () => list.append(refusedNote(reply)));
 }
 
 // Options for one request, such as the same quote with different support. Each
-// quote's own header is the toggle; collapsed, only that header shows, and in
-// created mode also the header of what submitting it triggers.
+// quote's own header is the toggle; every option starts collapsed, showing only
+// that header, and in created mode also the header of what submitting it triggers.
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const orList = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}` : items[0]);
 
-function collapsible(item, c, open) {
+function collapsible(item) {
   item.classList.add('batch-item');
   const header = item.querySelector('.page-header');
   if (!header) return item;
-  if (c.approvalNote) {
-    header.querySelector('.grow').append(h('div', { class: 'approval-note' }, h('span', { html: WARNING_ICON, 'aria-label': 'Approval:' }), c.approvalNote));
-  }
   const toggle = h('button', { class: 'collapse-toggle', type: 'button' });
   const setOpen = (value) => {
     item.classList.toggle('collapsed', !value);
@@ -494,7 +522,7 @@ function collapsible(item, c, open) {
       setOpen(true);
     });
   }
-  setOpen(open);
+  setOpen(false);
   return item;
 }
 
@@ -538,13 +566,19 @@ function submitPrompt(options) {
   return card(cardBody(h('p', { class: 'lead prompt' }, text)));
 }
 
+function confirmPrompt(options) {
+  const replies = orList(options.map((o) => `“confirm ${o.number}”`));
+  const text = options.length === 1 ? `Reply ${replies} to save it.` : `Reply ${replies} for one, or “confirm all”.`;
+  return card(cardBody(h('p', { class: 'lead prompt' }, text)));
+}
+
 function quoteOptionsCard(c) {
   if (c.mode === 'created') {
-    const rows = c.options.map((o) => collapsible(savedQuoteCard(o), o, false));
+    const rows = c.options.map((o) => collapsible(savedQuoteCard(o)));
     return h('div', { class: 'stack batch' }, submitPrompt(c.options), rows, moreQuotes(c.more, true));
   }
-  const rows = c.options.map((o, i) => collapsible(quoteChangeCard({ ...o, eyebrow: eyebrowOf(`Option ${o.number}`, o.label) }), o, i === 0));
-  return h('div', { class: 'stack batch' }, rows, moreQuotes(c.more, false), confirmAllBar(c.options));
+  const rows = c.options.map((o) => collapsible(quoteChangeCard({ ...o, eyebrow: eyebrowOf(`Option ${o.number}`, o.label) })));
+  return h('div', { class: 'stack batch' }, confirmPrompt(c.options), rows, moreQuotes(c.more, false), confirmAllBar(c.options));
 }
 
 // A successful save shows the record as it is now, with nothing marking the save.
@@ -595,6 +629,46 @@ function renderFrom(model, source) {
   render(model);
 }
 
+// ---------- capped hosts ----------
+// The card always reports its full height. A host that caps the frame, say at
+// one open option and the next header, scrolls it inside, so while there's more
+// below, the bottom edge fades and a button scrolls down.
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const fade = h('div', { class: 'scroll-fade', 'aria-hidden': 'true' });
+const scrollButton = h(
+  'button',
+  { class: 'scroll-more', type: 'button', 'aria-label': 'Scroll down', onclick: () => window.scrollTo({ top: nextStop(), behavior: reducedMotion.matches ? 'auto' : 'smooth' }) },
+  h('span', { class: 'chip-icon', html: CHEVRON_DOWN, 'aria-hidden': 'true' }),
+  'Scroll down',
+);
+document.body.append(fade, scrollButton);
+
+const bottomOf = () => document.documentElement.scrollHeight - window.innerHeight;
+const moreBelow = () => bottomOf() - window.scrollY > 2;
+
+// The next option's top, so the button brings it into view; past the last one, the bottom.
+// An option that starts in the top quarter of the view is the one being read, not the next.
+function nextStop() {
+  const y = window.scrollY;
+  const tops = [...document.querySelectorAll('#root .batch-item')].map((el) => Math.floor(el.getBoundingClientRect().top + y - 10));
+  const next = tops.find((top) => top > y + window.innerHeight / 4);
+  return Math.min(next === undefined ? bottomOf() : next, bottomOf());
+}
+
+// A host that isn't capped grows the frame a moment after the card grows, so the
+// cue waits briefly before showing and never flashes there; it hides at once.
+let showTimer;
+function updateScrollCue() {
+  clearTimeout(showTimer);
+  if (!moreBelow()) {
+    document.body.classList.remove('has-more');
+    return;
+  }
+  showTimer = setTimeout(() => document.body.classList.toggle('has-more', moreBelow()), 250);
+}
+window.addEventListener('scroll', updateScrollCue, { passive: true });
+window.addEventListener('resize', updateScrollCue);
+
 // scrollHeight never drops below the iframe's current height, so collapsing a
 // section would never shrink the frame; the root element's own height does.
 // Some hosts ignore a height of 0 and keep the frame's last height, so a card
@@ -602,6 +676,7 @@ function renderFrom(model, source) {
 new ResizeObserver(() => {
   const el = document.documentElement;
   notify('ui/notifications/size-changed', { width: el.scrollWidth, height: Math.max(1, Math.ceil(el.getBoundingClientRect().height)) });
+  updateScrollCue();
 }).observe(document.documentElement);
 
 start();

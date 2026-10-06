@@ -120,7 +120,6 @@ function savedOptionsText(card) {
     const number = o.subtitle ? `${o.recordType} ${o.subtitle}` : undefined;
     return [
       `${optionName(o)}: ${join([number, o.title])}`,
-      o.approvalNote,
       ...linesText(o.lines),
       o.totals.length ? `Totals: ${pairs(o.totals)}` : null,
       ...triggersText(o.triggers),
@@ -137,7 +136,7 @@ export function quoteOptionsText(card) {
   if (card.mode === 'created') return savedOptionsText(card);
   const shown = card.options.map((o) => {
     const head = changeHead(o);
-    return [`${optionName(o)}${head ? `: ${head}` : ''}`, o.approvalNote, ...previewLines(o), o.confirmHint, o.footerNote].filter(Boolean).join('\n');
+    return [`${optionName(o)}${head ? `: ${head}` : ''}`, ...previewLines(o), o.confirmHint, o.footerNote].filter(Boolean).join('\n');
   });
   const refused = card.refused.map((o) => {
     const why = o.status === 'rejected' ? 'it was refused' : 'it needs more input';

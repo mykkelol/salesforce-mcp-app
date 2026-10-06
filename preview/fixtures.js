@@ -126,7 +126,7 @@ const opportunityCard = (read) => ({
   record: read,
   instanceUrl: INSTANCE,
   highlights: [
-    { label: 'Account', value: { path: 'Account.Name' } },
+    { label: 'Account', value: { path: 'Account.Name' }, url: `${INSTANCE}/lightning/r/Account/001EXAMPLE00001AAA/view` },
     { label: 'Amount', value: { path: 'Amount' }, type: 'currency' },
     { label: 'Close Date', value: { path: 'CloseDate' }, type: 'date' },
     { label: 'Owner', value: { path: 'Owner.Name' } },
