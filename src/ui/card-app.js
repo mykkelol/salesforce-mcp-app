@@ -338,13 +338,42 @@ function recordView(c, { badge, extraChanges = [], afterCards = [], actions = []
   const info = sections.length ? card(cardBody(sections)) : null;
   const lines = hasLines(c.lines) ? linesCard(c.lines, c.totals) : null;
   const notes = c.notes && c.notes.length && c.kind !== 'quote-change' ? card(cardBody(note('info', c.notes))) : null;
+  const triggers = c.triggers ? triggersCard(c.triggers, c.submitHint) : null;
   const more = c.otherRecords ? `Showing 1 of ${c.otherRecords + 1} matching records` : null;
-  const cards = withFooters([header, path, info, lines, notes, ...afterCards], more && h('div', { class: 'card-footer center' }, more), footerLine(c.footerNote));
+  const cards = withFooters([header, path, info, lines, notes, triggers, ...afterCards], more && h('div', { class: 'card-footer center' }, more), footerLine(c.footerNote));
   return stack(cards, actionBar(linkButton(c.url), extraButtons(c.links), actions));
 }
 
 function recordCard(c) {
   return recordView(c);
+}
+
+const counted = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+function triggersSummary(t) {
+  return eyebrowOf(t.approvals.length ? counted(t.approvals.length, 'approval', 'approvals') : 'No approvals', t.processes.length ? counted(t.processes.length, 'process', 'processes') : null);
+}
+
+// What submitting the record would set off. Approvals can run in parallel, so they aren't numbered.
+function triggersCard(t, hint) {
+  const approval = (a) =>
+    h(
+      'li',
+      null,
+      h('div', { class: 'trigger-name' }, a.name),
+      a.approver ? h('div', { class: 'small' }, `Approver: ${a.approver}`) : null,
+      a.steps.length ? h('div', { class: 'small' }, a.steps.join(' → ')) : null,
+      a.reason ? h('div', { class: 'small muted' }, a.reason) : null,
+    );
+  const process = (p) => h('li', null, p.name, p.when ? h('span', { class: 'muted' }, ` · ${p.when}`) : null);
+  const body = [
+    t.approvals.length ? [h('div', { class: 'trigger-head' }, 'Approvals'), h('ul', { class: 'list trigger-list' }, t.approvals.map(approval))] : null,
+    t.processes.length ? [h('div', { class: 'trigger-head' }, 'Then'), h('ul', { class: 'list' }, t.processes.map(process))] : null,
+    t.note ? h('p', { class: 'trigger-note small muted' }, t.note) : null,
+    hint ? h('p', { class: 'trigger-note' }, hint) : null,
+  ];
+  const title = ['What This Triggers', h('span', { class: 'count' }, triggersSummary(t))];
+  return h('div', { class: 'card triggers' }, cardBody(section(title, true, body)));
 }
 
 function statusBadge(status) {
@@ -401,36 +430,46 @@ function confirmSection(c, summaryShown) {
   const fresh = (item) => !summaryShown || !c.summary.includes(item);
   const warnings = c.notes.filter(fresh);
   if (c.status !== 'preview') return { card: warnings.length ? card(cardBody(note('warning', warnings))) : null, button: null };
-  const canMessage = Boolean(state.host.capabilities && state.host.capabilities.message);
-  const hint = c.confirmHint || (canMessage ? 'Not saved until you confirm.' : 'Not saved until you reply “confirm” in the chat.');
+  const hint = c.confirmHint || (canMessage() ? 'Not saved until you confirm.' : 'Not saved until you reply “confirm” in the chat.');
   const list = h('ul', { class: 'list' }, warnings.map(warnItem), c.consequences.filter(fresh).map((w) => h('li', null, w)), h('li', null, hint));
-  return { card: card(cardBody(section('When You Confirm', true, list))), button: canMessage ? confirmButton(c, list) : null };
+  return { card: card(cardBody(section('When You Confirm', true, list))), button: canMessage() ? confirmButton(c, list) : null };
 }
 
-function confirmButton(c, list) {
-  const button = h('button', { class: 'btn brand', type: 'button' }, 'Confirm');
-  const reply = c.number ? `confirm ${c.number}` : 'confirm';
+const canMessage = () => Boolean(state.host.capabilities && state.host.capabilities.message);
+
+// Posts a reply for the user in hosts that accept messages from the card. `settles` is what stops moving once sent.
+function replyButton(label, text, settles, onRefused) {
+  const button = h('button', { class: 'btn brand', type: 'button' }, label);
   button.addEventListener('click', async () => {
-    (button.closest('.batch-item') || document.getElementById('root')).classList.add('settled');
+    settles(button).classList.add('settled');
     button.disabled = true;
     try {
-      const text = `${reply}: ${c.number ? eyebrowOf(c.label, c.title) : eyebrowOf(c.action, c.title, c.subtitle)}`;
       await request('ui/message', { role: 'user', content: [{ type: 'text', text }] });
       button.textContent = 'Sent to chat';
     } catch {
       button.disabled = false;
-      list.append(warnItem(`The chat didn’t accept the message. Reply “${reply}” instead.`));
+      onRefused(button);
     }
   });
   return button;
 }
 
-// Options for one request, such as the same quote with different support. Each
-// quote's own header is the toggle; collapsed, only that header shows.
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const optionOrRoot = (button) => button.closest('.batch-item') || document.getElementById('root');
+const refusedNote = (reply) => warnItem(`The chat didn’t accept the message. Reply “${reply}” instead.`);
 
-function collapsibleQuote(c, open) {
-  const item = quoteChangeCard(c);
+function confirmButton(c, list) {
+  const reply = c.number ? `confirm ${c.number}` : 'confirm';
+  const text = `${reply}: ${c.number ? eyebrowOf(c.label, c.title) : eyebrowOf(c.action, c.title, c.subtitle)}`;
+  return replyButton('Confirm', text, optionOrRoot, () => list.append(refusedNote(reply)));
+}
+
+// Options for one request, such as the same quote with different support. Each
+// quote's own header is the toggle; collapsed, only that header shows, and in
+// created mode also the header of what submitting it triggers.
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const orList = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}` : items[0]);
+
+function collapsible(item, c, open) {
   item.classList.add('batch-item');
   const header = item.querySelector('.page-header');
   if (!header) return item;
@@ -446,17 +485,66 @@ function collapsibleQuote(c, open) {
   header.classList.add('toggles');
   header.append(toggle);
   header.addEventListener('click', () => setOpen(item.classList.contains('collapsed')));
+  const triggers = item.querySelector(':scope > .triggers summary');
+  if (triggers) {
+    triggers.addEventListener('click', (e) => {
+      if (!item.classList.contains('collapsed')) return;
+      e.preventDefault();
+      triggers.parentElement.open = true;
+      setOpen(true);
+    });
+  }
   setOpen(open);
   return item;
 }
 
-function moreQuotes(hidden) {
-  return hidden > 0 ? card(h('div', { class: 'card-footer center' }, `${plural(hidden, 'more quote')} not shown. Ask for ${hidden === 1 ? 'it' : 'them'} in a new request.`)) : null;
+function moreQuotes(hidden, saved) {
+  if (hidden <= 0) return null;
+  const text = saved ? `${plural(hidden, 'more quote')} not shown.` : `${plural(hidden, 'more quote')} not shown. Ask for ${hidden === 1 ? 'it' : 'them'} in a new request.`;
+  return card(h('div', { class: 'card-footer center' }, text));
+}
+
+const refusedLine = (reply) => (button) =>
+  button.parentElement.prepend(h('span', { class: 'small muted' }, `The chat didn’t accept the message. Reply “${reply}” instead.`));
+
+function confirmAllBar(options) {
+  if (options.length < 2 || !canMessage()) return null;
+  const root = () => document.getElementById('root');
+  return h('div', { class: 'actions' }, replyButton('Confirm all', `confirm all: ${plural(options.length, 'quote')}`, root, refusedLine('confirm all')));
+}
+
+// A saved quote: its number links to it, and what submitting it triggers stays in view.
+function savedQuoteCard(c) {
+  const name = c.subtitle ? `${c.recordType} ${c.subtitle}` : `Open ${c.recordType.toLowerCase()}`;
+  const link = c.url
+    ? h('a', { class: 'record-link', href: '#', title: c.url, onclick: (e) => (e.preventDefault(), e.stopPropagation(), openLink(c.url)) }, name)
+    : c.subtitle
+      ? name
+      : null;
+  const eyebrow = [eyebrowOf(`Option ${c.number}`, c.label), link ? ' · ' : null, link];
+  const reply = `submit ${c.number}`;
+  const submitHint = `Reply “${reply}” to make this the primary quote and submit it for approval.`;
+  const submit = canMessage() ? replyButton('Submit', `${reply}: ${eyebrowOf(c.label, c.title)}`, optionOrRoot, refusedLine(reply)) : null;
+  if (submit) submit.setAttribute('aria-label', `Make option ${c.number} the primary quote and submit it`);
+  return recordView({ ...c, eyebrow, submitHint }, { actions: [submit] });
+}
+
+function submitPrompt(options) {
+  const replies = orList(options.map((o) => `“submit ${o.number}”`));
+  const text =
+    options.length === 1
+      ? `Quote created. Reply ${replies} to make it the primary quote and submit it for approval.`
+      : `${plural(options.length, 'quote')} created. Pick one to be the primary quote and submit it for approval: reply ${replies}.`;
+  return card(cardBody(h('p', { class: 'lead prompt' }, text)));
 }
 
 function quoteOptionsCard(c) {
-  const rows = c.options.map((o, i) => collapsibleQuote({ ...o, eyebrow: eyebrowOf(`Option ${o.number}`, o.label) }, i === 0));
-  return h('div', { class: 'stack batch' }, rows, moreQuotes(c.more));
+  if (c.mode === 'created') {
+    const rows = c.options.map((o) => collapsible(savedQuoteCard(o), o, false));
+    return h('div', { class: 'stack batch' }, submitPrompt(c.options), rows, moreQuotes(c.more, true));
+  }
+  const rows = c.options.map((o, i) => collapsible(quoteChangeCard({ ...o, eyebrow: eyebrowOf(`Option ${o.number}`, o.label) }), o, i === 0));
+  return h('div', { class: 'stack batch' }, rows, moreQuotes(c.more, false), confirmAllBar(c.options));
 }
 
 // A successful save shows the record as it is now, with nothing marking the save.

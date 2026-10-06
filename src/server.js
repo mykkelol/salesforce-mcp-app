@@ -12,9 +12,9 @@ export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 const MAX_INPUT_CHARS = 200_000;
 
 export const CARD_URIS = {
-  record: 'ui://salesforce-mcp-app/record-card-v3.html',
+  record: 'ui://salesforce-mcp-app/record-card-v5.html',
   'quote-change': 'ui://salesforce-mcp-app/quote-change-v3.html',
-  'quote-options': 'ui://salesforce-mcp-app/quote-options-v4.html',
+  'quote-options': 'ui://salesforce-mcp-app/quote-options-v5.html',
   'write-result': 'ui://salesforce-mcp-app/write-result-v3.html',
 };
 
@@ -26,8 +26,9 @@ export const CARD_URIS = {
 const UI_META = { prefersBorder: false, csp: { resourceDomains: ['data:'] } };
 
 const LEGACY_URIS = {
-  record: ['ui://salesforce-mcp-app/record-card-v2.html', 'ui://salesforce-mcp-app/record-card-v1.html'],
+  record: ['ui://salesforce-mcp-app/record-card-v3.html', 'ui://salesforce-mcp-app/record-card-v2.html', 'ui://salesforce-mcp-app/record-card-v1.html'],
   'quote-change': ['ui://salesforce-mcp-app/quote-change-v2.html', 'ui://salesforce-mcp-app/quote-change-v1.html'],
+  'quote-options': ['ui://salesforce-mcp-app/quote-options-v4.html'],
   'write-result': ['ui://salesforce-mcp-app/write-result-v2.html', 'ui://salesforce-mcp-app/write-result-v1.html'],
 };
 
@@ -128,6 +129,33 @@ const common = {
   footerNote: Text.optional(),
 };
 
+// Plain text only: allowing a reference for each value would add about 700 tokens to every host's tool list.
+const Triggers = z
+  .object({
+    approvals: z
+      .array(z.object({ name: z.string(), approver: z.string().optional(), reason: z.string().optional(), steps: z.array(z.string()).max(6).optional() }))
+      .max(6)
+      .optional()
+      .describe('Approvals that would run on submit, which can run in parallel. `steps`: approvers in turn within one approval.'),
+    processes: z
+      .array(z.object({ name: z.string(), when: z.string().optional() }))
+      .max(6)
+      .optional()
+      .describe('What else runs after the submit or the approval, in order, with `when`, for example "When approved".'),
+    note: z.string().optional(),
+  })
+  .describe('What submitting the record for approval would set off, shown as a "What This Triggers" section.');
+
+const recordCard = {
+  ...common,
+  highlights: z.array(Field).max(8).optional().describe('Up to 8 key values shown in the header.'),
+  fields: z.array(Field).max(30).optional().describe('More labeled values, shown under Information.'),
+  stages: z.object({ steps: z.array(z.string()).max(12), current: Text }).optional(),
+  lines: Lines.optional(),
+  totals: z.array(Total).max(6).optional(),
+  triggers: Triggers.optional(),
+};
+
 const quoteChange = {
   ...common,
   status: z.enum(['preview', 'needs-input', 'rejected']).describe('preview: nothing saved yet; needs-input; rejected.'),
@@ -151,18 +179,27 @@ const optionKeys = {
   label: Text.describe('A short name for the option, for example "Standard support".'),
   approvalNote: Text.optional().describe('Shown under the option’s name, for example that its discount needs approval.'),
 };
-const QuoteOption = z.object({ ...optionKeys, ...quoteChange });
+const OPTION_SHAPES = {
+  preview: { tool: 'show_quote_change', schema: z.object({ ...optionKeys, ...quoteChange }) },
+  created: { tool: 'show_record_card', schema: z.object({ ...optionKeys, ...recordCard }) },
+};
 
-// Listing each option's full shape would repeat show_quote_change's schema, about 8,000
+// Listing each option's full shape would repeat a card tool's schema, about 8,000
 // tokens in every host's tool list, so the tool lists only the option's own keys and
 // each option is checked against the full shape here.
 function optionsError(args) {
+  const created = args.mode === 'created';
+  const shape = OPTION_SHAPES[created ? 'created' : 'preview'];
   for (const [i, option] of (Array.isArray(args.options) ? args.options : []).entries()) {
-    const parsed = QuoteOption.safeParse(option);
+    // The created view says the quotes were saved, so a preview must never be drawn in it.
+    if (created && option && (option.status !== undefined || option.draft !== undefined)) {
+      return `Couldn't show the options: option ${i + 1} is a preview, not a saved quote. In created mode, pass each saved quote's record card.`;
+    }
+    const parsed = shape.schema.safeParse(option);
     if (parsed.success) continue;
     const issue = parsed.error.issues[0];
     const where = issue.path.length ? `, ${issue.path.join('.')}` : '';
-    return `Couldn't show the options: option ${i + 1}${where}: ${issue.message}. Each option takes the show_quote_change input, plus label and approvalNote.`;
+    return `Couldn't show the options: option ${i + 1}${where}: ${issue.message}. Each option takes the ${shape.tool} input, plus label and approvalNote.`;
   }
   return null;
 }
@@ -176,16 +213,10 @@ const TOOLS = [
       'Shows one Salesforce record as a card, with a short text version. Pass a read tool’s result unchanged as ' +
       '`record`, then choose what to show: `highlights` (the header) and `fields` (an Information section), and ' +
       'optionally `stages` (a path such as opportunity stages), `lines` (related rows such as line items), `totals`, ' +
-      'and `url` or `instanceUrl`. Values can be literals or {"path": ...} references into `record`, so numbers are ' +
-      'read from the data rather than retyped. Render-only: it never reads or writes Salesforce.',
-    inputSchema: z.object({
-      ...common,
-      highlights: z.array(Field).max(8).optional().describe('Up to 8 key values shown in the header.'),
-      fields: z.array(Field).max(30).optional().describe('More labeled values, shown under Information.'),
-      stages: z.object({ steps: z.array(z.string()).max(12), current: Text }).optional(),
-      lines: Lines.optional(),
-      totals: z.array(Total).max(6).optional(),
-    }),
+      '`triggers` (what submitting it for approval would set off), and `url` or `instanceUrl`. Values can be ' +
+      'literals or {"path": ...} references into `record`, so numbers are read from the data rather than retyped. ' +
+      'Render-only: it never reads or writes Salesforce.',
+    inputSchema: z.object(recordCard),
     build: buildRecordCard,
     text: recordText,
   },
@@ -211,17 +242,28 @@ const TOOLS = [
     kind: 'quote-options',
     title: 'Show quote options',
     description:
-      'Shows 2 or 3 alternative quotes for one request as numbered options, before anything is saved, so the user ' +
-      'can compare them and pick one. Each option takes the same input as a show_quote_change preview of a new ' +
-      'quote (`status` preview, `draft` true, the preview tool’s result passed unchanged as `result`, `lines`, ' +
-      '`totals`, `consequences`), plus a short `label` such as "Standard support" and an optional `approvalNote`. ' +
-      'The first option opens and the others collapse to their headers. The user picks one by replying "confirm 1", ' +
-      '"confirm 2" or "confirm 3", numbered in the order you pass the options. Up to 3 are shown; an option with ' +
-      'status `needs-input` or `rejected` isn’t drawn, and the text version carries its message. Render-only: ' +
-      'create only the quote the user confirms, through your Salesforce tool.',
+      'Shows 2 or 3 alternative quotes for one request as numbered options, so the user can compare them and pick. ' +
+      'Each option has a short `label` such as "Standard support" and an optional `approvalNote`. Before anything ' +
+      'is saved (`mode` preview, the default), each option takes the same input as a show_quote_change preview of a ' +
+      'new quote; the first opens, the others collapse to their headers, and the user replies "confirm 1", ' +
+      '"confirm 2" or "confirm 3" for one quote, or "confirm all" for every one shown. An option with status ' +
+      '`needs-input` or `rejected` isn’t drawn, and the text version carries its message. After the quotes are ' +
+      'saved (`mode` created), each option takes the same input as a show_record_card card of the saved quote, ' +
+      'with its `triggers`; all start collapsed, showing the quote number, its link and what submitting it ' +
+      'triggers, and the user replies "submit N" to make one primary and submit it. Options are numbered in the ' +
+      'order you pass them; up to 3 are shown. Render-only: saving and submitting happen through your Salesforce ' +
+      'tools, only after the user replies.',
     inputSchema: z.object({
+      mode: z
+        .enum(['preview', 'created'])
+        .optional()
+        .describe('preview (default): quotes not saved yet, confirmed by number. created: saved quotes, submitted by number.'),
       options: z
-        .array(z.looseObject(optionKeys).describe('A show_quote_change input for a new quote, plus `label` and an optional `approvalNote`.'))
+        .array(
+          z
+            .looseObject(optionKeys)
+            .describe('In preview mode a show_quote_change input; in created mode a show_record_card input. Plus `label` and an optional `approvalNote`.'),
+        )
         .min(1)
         .max(10)
         .describe('The options, in the order they are numbered.'),

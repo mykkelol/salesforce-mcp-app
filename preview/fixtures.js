@@ -310,6 +310,50 @@ const QUOTE_OPTIONS = [
   ),
 ];
 
+// The same three quotes once saved, as card-ready record cards with what submitting each would set off.
+const ON_SUBMIT = [
+  { name: 'Approval request posted in the team channel', when: 'On submit' },
+  { name: 'Quote locked until every approval is in', when: 'On submit' },
+  { name: 'Can be made the primary quote', when: 'When approved' },
+];
+const MANAGER_REVIEW = { name: 'Manager Review', reason: 'Every new quote on this opportunity type.', approver: 'Sales manager' };
+const savedOption = (label, n, support, triggers) => ({
+  label,
+  recordType: 'Quote',
+  title: 'Example Co. – Expansion',
+  subtitle: `Q-000${n}`,
+  url: `${INSTANCE}/lightning/r/Quote/0Q0EXAMPLE0000${n}AAA/view`,
+  highlights: [
+    { label: 'Status', value: 'Draft' },
+    { label: 'Opportunity', value: 'Example Co. – Expansion' },
+    { label: 'Account', value: 'Example Co.' },
+  ],
+  stages: { steps: ['Draft', 'Submitted', 'Approved'], current: 'Draft' },
+  lines: {
+    title: 'Products',
+    item: { name: 'name', quantity: 'quantity', price: 'price', listPrice: 'listPrice', discount: 'discount' },
+    defaults: OPTION_DATES,
+    rows: support ? [...OPTION_ROWS, support] : OPTION_ROWS,
+  },
+  triggers,
+});
+const SAVED_OPTIONS = [
+  savedOption('No support', 3, null, { approvals: [MANAGER_REVIEW], processes: ON_SUBMIT }),
+  savedOption('Standard support', 4, { name: 'Standard Support', quantity: 1, price: 6000 }, {
+    approvals: [MANAGER_REVIEW, { name: 'Support Review', reason: 'Standard Support on a quote under 100 seats.', approver: 'Support team leads' }],
+    processes: [...ON_SUBMIT, { name: 'Support onboarding starts', when: 'At closed won' }],
+  }),
+  savedOption('Premium support', 5, { name: 'Premium Support', quantity: 1, price: 11250, listPrice: 15000, discount: 25 }, {
+    approvals: [
+      MANAGER_REVIEW,
+      { name: 'Discount Review', reason: 'A support discount above 20%.', approver: 'Finance team' },
+      { name: 'Support Review', reason: 'Premium Support.', approver: 'Support team leads' },
+    ],
+    processes: [...ON_SUBMIT, { name: 'Support onboarding starts', when: 'At closed won' }],
+    note: 'Editing the quote after submitting recalls the approval.',
+  }),
+];
+
 const SAVED_LINE_RESULT = {
   ok: true,
   quote: { id: QUOTE_ID, name: 'Example Co. – Annual Renewal', number: 'Q-0001', link: `${INSTANCE}/lightning/r/Quote/${QUOTE_ID}/view` },
@@ -392,6 +436,13 @@ export const FIXTURES = [
         ],
       },
     },
+  },
+  {
+    id: 'quote-triggers',
+    group: 'Record',
+    label: 'New quote · what submitting triggers',
+    kind: 'record',
+    args: (({ label, ...card }) => card)(SAVED_OPTIONS[2]),
   },
   { id: 'record-empty', group: 'Record', label: 'No record found', kind: 'record', args: { record: { totalSize: 0, done: true, records: [] } } },
 
@@ -513,6 +564,13 @@ export const FIXTURES = [
     label: '4 options · 3 shown',
     kind: 'quote-options',
     args: { options: [...QUOTE_OPTIONS, quoteOption('Enterprise support', { name: 'Enterprise Support', quantity: 1, price: 24000 })] },
+  },
+  {
+    id: 'quote-options-created',
+    group: 'Quote options',
+    label: 'Created · all collapsed, submit by number',
+    kind: 'quote-options',
+    args: { mode: 'created', options: SAVED_OPTIONS },
   },
   {
     id: 'quote-options-refused',

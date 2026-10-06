@@ -6,7 +6,7 @@
 import { formatValue, isEmpty, isNumericType, isPlainObject, lightningRecordUrl, safeHttpsUrl } from './format.js';
 
 // Bumped when the card model changes shape; the card rebuilds older models from the tool input.
-export const MODEL_VERSION = 2;
+export const MODEL_VERSION = 3;
 
 const MAX_FIELDS = 30;
 const MAX_ROWS = 50;
@@ -274,6 +274,30 @@ export function stagePath(stages, sources) {
   return { current, offPath: true, steps: steps.map((name) => ({ name, state: 'incomplete' })) };
 }
 
+const MAX_TRIGGERS = 6;
+
+// What submitting the record would set off. Approvals can run in parallel, so they keep the
+// order they were given without being numbered.
+function triggerList(t, sources) {
+  if (!isPlainObject(t)) return undefined;
+  const named = (list, entry) =>
+    (Array.isArray(list) ? list : [])
+      .filter(isPlainObject)
+      .slice(0, MAX_TRIGGERS)
+      .map(entry)
+      .filter((x) => x.name);
+  return {
+    approvals: named(t.approvals, (a) => ({
+      name: textOf(a.name, sources),
+      approver: textOf(a.approver, sources),
+      reason: textOf(a.reason, sources),
+      steps: (Array.isArray(a.steps) ? a.steps : []).slice(0, MAX_TRIGGERS).map((s) => textOf(s, sources)).filter(Boolean),
+    })),
+    processes: named(t.processes, (p) => ({ name: textOf(p.name, sources), when: textOf(p.when, sources) })),
+    note: textOf(t.note, sources),
+  };
+}
+
 const originOf = (url) => (url ? new URL(url).origin : undefined);
 const sourcesOf = (args) => ({ record: pickRecord(args.record, args.recordId), result: pickResult(args.result) });
 
@@ -323,6 +347,7 @@ export function buildRecordCard(args = {}) {
     stage: stagePath(args.stages, c.sources),
     lines: lineList(args.lines, c.sources, c.currency, c.origin),
     totals: fieldList(args.totals, c.sources, c.currency, 6).map(shown),
+    triggers: triggerList(args.triggers, c.sources),
     notes: c.notes,
     otherRecords: c.otherRecords,
     url: c.url,
@@ -390,38 +415,40 @@ const MAX_OPTIONS = 10;
 const SHOWN_OPTIONS = 3;
 
 // An option is confirmed by its position in the request, so its reply word carries that number.
-function numberedHint(hint, number) {
-  const reply = `confirm ${number}`;
-  const plain = `Not saved until you reply “${reply}” in the chat.`;
+// With several options shown, the same line offers "confirm all" for every one of them.
+function numberedHint(hint, number, together) {
+  const reply = (open, close) =>
+    `${open}confirm ${number}${close}${together ? ` (or ${open}confirm all${close} for all ${together})` : ''}`;
+  const plain = `Not saved until you reply ${reply('“', '”')} in the chat.`;
   if (!hint) return plain;
-  const numbered = hint.replace(/([“"'])confirm([”"'])/i, `$1${reply}$2`);
+  const numbered = hint.replace(/([“"'])confirm([”"'])/i, (_, open, close) => reply(open, close));
   return numbered === hint ? `${plain} ${hint}` : numbered;
 }
 
+const MODES = ['preview', 'created'];
+
 export function buildQuoteOptionsCard(args = {}) {
+  const mode = MODES.includes(args.mode) ? args.mode : 'preview';
+  const build = mode === 'created' ? buildRecordCard : buildQuoteChangeCard;
   const all = (Array.isArray(args.options) ? args.options : [])
     .slice(0, MAX_OPTIONS)
     .map((o, i) => {
       if (!isPlainObject(o)) return null;
-      const option = buildQuoteChangeCard(o);
       const sources = sourcesOf(o);
-      return {
-        ...option,
-        number: i + 1,
-        label: textOf(o.label, sources),
-        approvalNote: textOf(o.approvalNote, sources),
-        confirmHint: numberedHint(option.confirmHint, i + 1),
-      };
+      return { ...build(o), number: i + 1, label: textOf(o.label, sources), approvalNote: textOf(o.approvalNote, sources) };
     })
-    .filter(Boolean);
-  const previews = all.filter((o) => o.status === 'preview');
+    .filter((o) => o && !o.error);
+  const drawn = all.filter((o) => mode === 'created' || o.status === 'preview');
+  const options = drawn.slice(0, SHOWN_OPTIONS);
+  const together = options.length > 1 ? options.length : 0;
   return {
     kind: 'quote-options',
     v: MODEL_VERSION,
-    options: previews.slice(0, SHOWN_OPTIONS),
-    more: Math.max(0, previews.length - SHOWN_OPTIONS),
+    mode,
+    options: mode === 'created' ? options : options.map((o) => ({ ...o, confirmHint: numberedHint(o.confirmHint, o.number, together) })),
+    more: Math.max(0, drawn.length - SHOWN_OPTIONS),
     refused: all
-      .filter((o) => o.status !== 'preview')
+      .filter((o) => !drawn.includes(o))
       .map((o) => ({ number: o.number, label: o.label, title: o.title, status: o.status, message: o.message })),
   };
 }

@@ -194,9 +194,23 @@ a.record-link:hover { border-bottom-style: solid; }
 .collapse-toggle:hover { background: rgba(0, 0, 0, 0.05); }
 .collapse-toggle::before { content: ''; width: 0.5rem; height: 0.5rem; border-right: 2px solid var(--text-weak); border-bottom: 2px solid var(--text-weak); transform: translateY(2px) rotate(-135deg); transition: transform 0.15s; }
 .batch-item.collapsed .collapse-toggle::before { transform: translateY(-2px) rotate(45deg); }
-.batch-item.collapsed > :not(:first-child),
+.batch-item.collapsed > :not(:first-child):not(.triggers),
 .batch-item.collapsed .ai-frame > :not(.ai-pill):not(:nth-child(2)),
-.batch-item.collapsed .card:has(> .page-header) > :not(.page-header) { display: none; }
+.batch-item.collapsed .card:has(> .page-header) > :not(.page-header),
+.batch-item.collapsed > .triggers .sf-section-body { display: none; }
+.batch-item.collapsed { gap: 0.25rem; }
+.batch-item.collapsed > .triggers .card-body { padding-bottom: 0.5rem; }
+.batch-item.collapsed > .triggers .sf-section { margin-bottom: 0; }
+.batch-item.collapsed > .triggers .sf-section > summary::before { transform: rotate(-45deg); }
+.lead.prompt { margin: 0; }
+.eyebrow .record-link { white-space: nowrap; }
+
+/* what submitting a record would set off */
+.trigger-head { margin: 0 0 0.25rem; font-size: 0.8125rem; font-weight: 700; }
+.list + .trigger-head { margin-top: 0.75rem; }
+.trigger-list li + li { margin-top: 0.5rem; }
+.trigger-name { font-weight: 600; }
+.trigger-note { margin: 0.75rem 0 0; }
 .approval-note { display: flex; align-items: flex-start; gap: 0.375rem; margin-top: 0.25rem; font-size: 0.8125rem; line-height: 1.4; color: var(--warning-text); }
 .approval-note > span { flex: 0 0 auto; color: #dd7a01; }
 .approval-note svg { display: block; width: 0.8125rem; height: 0.8125rem; margin-top: 0.15rem; }
