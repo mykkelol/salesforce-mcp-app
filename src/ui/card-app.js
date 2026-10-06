@@ -498,8 +498,6 @@ function confirmButton(c, list) {
 // quote's own header is the toggle; every option starts collapsed, showing only
 // that header, and in created mode also the header of what submitting it triggers.
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const orList = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}` : items[0]);
-
 function collapsible(item) {
   item.classList.add('batch-item');
   const header = item.querySelector('.page-header');
@@ -576,19 +574,13 @@ function previewOptionCard(o) {
   return node;
 }
 
-function confirmPrompt(options) {
-  const replies = orList(options.map((o) => `“confirm ${o.number}”`));
-  const text = options.length === 1 ? `Reply ${replies} to save it.` : `Reply ${replies} for one, or “confirm all”.`;
-  return card(cardBody(h('p', { class: 'lead prompt' }, text)));
-}
-
 function quoteOptionsCard(c) {
   if (c.mode === 'created') {
     const rows = c.options.map((o) => collapsible(savedQuoteCard(o)));
     return h('div', { class: 'stack batch' }, rows, moreQuotes(c.more, true));
   }
   const rows = c.options.map((o) => collapsible(previewOptionCard({ ...o, eyebrow: eyebrowOf(`Option ${o.number}`, o.label) })));
-  return h('div', { class: 'stack batch' }, confirmPrompt(c.options), rows, moreQuotes(c.more, false), confirmAllBar(c.options));
+  return h('div', { class: 'stack batch' }, rows, moreQuotes(c.more, false), confirmAllBar(c.options));
 }
 
 // A successful save shows the record as it is now, with nothing marking the save.

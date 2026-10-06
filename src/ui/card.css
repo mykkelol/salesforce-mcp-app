@@ -204,7 +204,6 @@ a.record-link:hover { border-bottom-style: solid; }
 .batch-item.collapsed > .triggers .card-body { padding-bottom: 0.5rem; }
 .batch-item.collapsed > .triggers .sf-section { margin-bottom: 0; }
 .batch-item.collapsed > .triggers .sf-section > summary::before { transform: rotate(-45deg); }
-.lead.prompt { margin: 0; }
 .eyebrow .record-link { white-space: nowrap; }
 /* a product another option has and this one doesn't */
 .option-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-weak); }

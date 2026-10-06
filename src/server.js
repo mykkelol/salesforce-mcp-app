@@ -14,7 +14,7 @@ const MAX_INPUT_CHARS = 200_000;
 export const CARD_URIS = {
   record: 'ui://salesforce-mcp-app/record-card-v6.html',
   'quote-change': 'ui://salesforce-mcp-app/quote-change-v4.html',
-  'quote-options': 'ui://salesforce-mcp-app/quote-options-v7.html',
+  'quote-options': 'ui://salesforce-mcp-app/quote-options-v8.html',
   'write-result': 'ui://salesforce-mcp-app/write-result-v4.html',
 };
 
@@ -33,7 +33,7 @@ const LEGACY_URIS = {
     'ui://salesforce-mcp-app/record-card-v1.html',
   ],
   'quote-change': ['ui://salesforce-mcp-app/quote-change-v3.html', 'ui://salesforce-mcp-app/quote-change-v2.html', 'ui://salesforce-mcp-app/quote-change-v1.html'],
-  'quote-options': ['ui://salesforce-mcp-app/quote-options-v6.html', 'ui://salesforce-mcp-app/quote-options-v5.html', 'ui://salesforce-mcp-app/quote-options-v4.html'],
+  'quote-options': ['ui://salesforce-mcp-app/quote-options-v7.html', 'ui://salesforce-mcp-app/quote-options-v6.html', 'ui://salesforce-mcp-app/quote-options-v5.html', 'ui://salesforce-mcp-app/quote-options-v4.html'],
   'write-result': ['ui://salesforce-mcp-app/write-result-v3.html', 'ui://salesforce-mcp-app/write-result-v2.html', 'ui://salesforce-mcp-app/write-result-v1.html'],
 };
 
