@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { buildRecordCard, buildQuoteChangeCard, buildWriteResultCard } from './cards/normalize.js';
-import { recordText, quoteChangeText, writeResultText } from './cards/text.js';
+import { buildRecordCard, buildQuoteChangeCard, buildQuoteOptionsCard, buildWriteResultCard } from './cards/normalize.js';
+import { recordText, quoteChangeText, quoteOptionsText, writeResultText } from './cards/text.js';
 import { buildCardHtml } from './ui/build-html.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -14,6 +14,7 @@ const MAX_INPUT_CHARS = 200_000;
 export const CARD_URIS = {
   record: 'ui://salesforce-mcp-app/record-card-v3.html',
   'quote-change': 'ui://salesforce-mcp-app/quote-change-v3.html',
+  'quote-options': 'ui://salesforce-mcp-app/quote-options-v4.html',
   'write-result': 'ui://salesforce-mcp-app/write-result-v3.html',
 };
 
@@ -34,8 +35,9 @@ const INSTRUCTIONS =
   'Render-only cards for Salesforce data. After a Salesforce tool returns data, call a card tool and pass that ' +
   'JSON unchanged as `record` (a read) or `result` (a write or preview). Point values at it with {"path": "Field"}, ' +
   'adding "from": "result" for the write or preview, instead of retyping numbers. Each tool returns a card plus a ' +
-  'short text version you can send as your reply. These tools never read or change Salesforce: saving happens ' +
-  'through your Salesforce tools, after the user confirms.';
+  'short text version you can send as your reply. For 2 or 3 alternative quotes in one request, use ' +
+  'show_quote_options. These tools never read or change Salesforce: saving happens through your Salesforce tools, ' +
+  'after the user confirms.';
 
 const ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
@@ -126,6 +128,45 @@ const common = {
   footerNote: Text.optional(),
 };
 
+const quoteChange = {
+  ...common,
+  status: z.enum(['preview', 'needs-input', 'rejected']).describe('preview: nothing saved yet; needs-input; rejected.'),
+  action: Text.optional().describe('What the change does, for example "Add a quote line".'),
+  draft: z.boolean().optional().describe('The record doesn’t exist yet; everything shown is proposed.'),
+  message: Text.optional(),
+  summary: Text.optional().describe('Preview text as the tool returned it (Markdown).'),
+  highlights: z.array(Field).max(8).optional().describe('The record’s key values, shown in the header.'),
+  changes: z
+    .array(z.object({ label: z.string(), before: Val.optional(), after: Val.optional(), type: ValueType.optional() }))
+    .max(20)
+    .optional(),
+  lines: Lines.optional(),
+  totals: z.array(Total).max(6).optional(),
+  fields: z.array(Field).max(30).optional(),
+  consequences: Notes.optional().describe('What happens when the user confirms.'),
+  confirmHint: Text.optional().describe('Overrides the "reply confirm" line.'),
+};
+
+const optionKeys = {
+  label: Text.describe('A short name for the option, for example "Standard support".'),
+  approvalNote: Text.optional().describe('Shown under the option’s name, for example that its discount needs approval.'),
+};
+const QuoteOption = z.object({ ...optionKeys, ...quoteChange });
+
+// Listing each option's full shape would repeat show_quote_change's schema, about 8,000
+// tokens in every host's tool list, so the tool lists only the option's own keys and
+// each option is checked against the full shape here.
+function optionsError(args) {
+  for (const [i, option] of (Array.isArray(args.options) ? args.options : []).entries()) {
+    const parsed = QuoteOption.safeParse(option);
+    if (parsed.success) continue;
+    const issue = parsed.error.issues[0];
+    const where = issue.path.length ? `, ${issue.path.join('.')}` : '';
+    return `Couldn't show the options: option ${i + 1}${where}: ${issue.message}. Each option takes the show_quote_change input, plus label and approvalNote.`;
+  }
+  return null;
+}
+
 const TOOLS = [
   {
     name: 'show_record_card',
@@ -161,26 +202,33 @@ const TOOLS = [
       '`result`, and a read of the record as `record` if you have one. With status `needs-input` or `rejected` no ' +
       'card is drawn; reply with the text version, which carries the message. Render-only: saving still happens ' +
       'through your Salesforce tool, only after the user confirms.',
-    inputSchema: z.object({
-      ...common,
-      status: z.enum(['preview', 'needs-input', 'rejected']).describe('preview: nothing saved yet; needs-input; rejected.'),
-      action: Text.optional().describe('What the change does, for example "Add a quote line".'),
-      draft: z.boolean().optional().describe('The record doesn’t exist yet; everything shown is proposed.'),
-      message: Text.optional(),
-      summary: Text.optional().describe('Preview text as the tool returned it (Markdown).'),
-      highlights: z.array(Field).max(8).optional().describe('The record’s key values, shown in the header.'),
-      changes: z
-        .array(z.object({ label: z.string(), before: Val.optional(), after: Val.optional(), type: ValueType.optional() }))
-        .max(20)
-        .optional(),
-      lines: Lines.optional(),
-      totals: z.array(Total).max(6).optional(),
-      fields: z.array(Field).max(30).optional(),
-      consequences: Notes.optional().describe('What happens when the user confirms.'),
-      confirmHint: Text.optional().describe('Overrides the "reply confirm" line.'),
-    }),
+    inputSchema: z.object(quoteChange),
     build: buildQuoteChangeCard,
     text: quoteChangeText,
+  },
+  {
+    name: 'show_quote_options',
+    kind: 'quote-options',
+    title: 'Show quote options',
+    description:
+      'Shows 2 or 3 alternative quotes for one request as numbered options, before anything is saved, so the user ' +
+      'can compare them and pick one. Each option takes the same input as a show_quote_change preview of a new ' +
+      'quote (`status` preview, `draft` true, the preview tool’s result passed unchanged as `result`, `lines`, ' +
+      '`totals`, `consequences`), plus a short `label` such as "Standard support" and an optional `approvalNote`. ' +
+      'The first option opens and the others collapse to their headers. The user picks one by replying "confirm 1", ' +
+      '"confirm 2" or "confirm 3", numbered in the order you pass the options. Up to 3 are shown; an option with ' +
+      'status `needs-input` or `rejected` isn’t drawn, and the text version carries its message. Render-only: ' +
+      'create only the quote the user confirms, through your Salesforce tool.',
+    inputSchema: z.object({
+      options: z
+        .array(z.looseObject(optionKeys).describe('A show_quote_change input for a new quote, plus `label` and an optional `approvalNote`.'))
+        .min(1)
+        .max(10)
+        .describe('The options, in the order they are numbered.'),
+    }),
+    check: optionsError,
+    build: buildQuoteOptionsCard,
+    text: quoteOptionsText,
   },
   {
     name: 'show_write_result',
@@ -214,6 +262,8 @@ export function renderToolResult(tool, args) {
       isError: true,
     };
   }
+  const invalid = tool.check && tool.check(args ?? {});
+  if (invalid) return { content: [{ type: 'text', text: invalid }], isError: true };
   const card = tool.build(args ?? {});
   return { content: [{ type: 'text', text: tool.text(card) }], structuredContent: card };
 }
@@ -245,7 +295,7 @@ export function createServer() {
   for (const tool of TOOLS) {
     const uri = CARD_URIS[tool.kind];
     registerCard(server, tool, uri, `${tool.kind}-card`, `${tool.title} (card)`);
-    for (const legacy of LEGACY_URIS[tool.kind]) {
+    for (const legacy of LEGACY_URIS[tool.kind] || []) {
       registerCard(server, tool, legacy, `${tool.kind}-card-${/-(v\d+)\.html$/.exec(legacy)[1]}`, `${tool.title} (card, earlier link)`);
     }
     server.registerTool(

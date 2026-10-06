@@ -14,8 +14,8 @@ const PORT = Number(process.env.PORT) || 5180;
 // URL prefix → folder it serves.
 const STATIC = { preview: join(root, 'preview'), cards: join(root, 'src', 'cards') };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
-const KINDS = new Set(['record', 'quote-change', 'write-result']);
-const TITLES = { record: 'Salesforce record', 'quote-change': 'Change preview', 'write-result': 'Salesforce result' };
+const KINDS = new Set(['record', 'quote-change', 'quote-options', 'write-result']);
+const TITLES = { record: 'Salesforce record', 'quote-change': 'Change preview', 'quote-options': 'Quote options', 'write-result': 'Salesforce result' };
 
 const builderUrl = pathToFileURL(join(root, 'src', 'ui', 'build-html.js')).href;
 const loadBuilder = async () => (await import(`${builderUrl}?t=${Date.now()}`)).buildCardHtml;

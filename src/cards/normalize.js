@@ -275,10 +275,11 @@ export function stagePath(stages, sources) {
 }
 
 const originOf = (url) => (url ? new URL(url).origin : undefined);
+const sourcesOf = (args) => ({ record: pickRecord(args.record, args.recordId), result: pickResult(args.result) });
 
 function common(args) {
   const records = recordsOf(args.record);
-  const sources = { record: pickRecord(args.record, args.recordId), result: pickResult(args.result) };
+  const sources = sourcesOf(args);
   const rec = sources.record || {};
   const currency = typeof args.currency === 'string' ? args.currency : typeof rec.CurrencyIsoCode === 'string' ? rec.CurrencyIsoCode : undefined;
   const recordType = textOf(args.recordType, sources) || (isPlainObject(rec.attributes) && rec.attributes.type) || 'Record';
@@ -384,6 +385,47 @@ export function buildQuoteChangeCard(args = {}) {
   };
 }
 
+const MAX_OPTIONS = 10;
+// One request shows at most this many quotes; each is confirmed on its own.
+const SHOWN_OPTIONS = 3;
+
+// An option is confirmed by its position in the request, so its reply word carries that number.
+function numberedHint(hint, number) {
+  const reply = `confirm ${number}`;
+  const plain = `Not saved until you reply “${reply}” in the chat.`;
+  if (!hint) return plain;
+  const numbered = hint.replace(/([“"'])confirm([”"'])/i, `$1${reply}$2`);
+  return numbered === hint ? `${plain} ${hint}` : numbered;
+}
+
+export function buildQuoteOptionsCard(args = {}) {
+  const all = (Array.isArray(args.options) ? args.options : [])
+    .slice(0, MAX_OPTIONS)
+    .map((o, i) => {
+      if (!isPlainObject(o)) return null;
+      const option = buildQuoteChangeCard(o);
+      const sources = sourcesOf(o);
+      return {
+        ...option,
+        number: i + 1,
+        label: textOf(o.label, sources),
+        approvalNote: textOf(o.approvalNote, sources),
+        confirmHint: numberedHint(option.confirmHint, i + 1),
+      };
+    })
+    .filter(Boolean);
+  const previews = all.filter((o) => o.status === 'preview');
+  return {
+    kind: 'quote-options',
+    v: MODEL_VERSION,
+    options: previews.slice(0, SHOWN_OPTIONS),
+    more: Math.max(0, previews.length - SHOWN_OPTIONS),
+    refused: all
+      .filter((o) => o.status !== 'preview')
+      .map((o) => ({ number: o.number, label: o.label, title: o.title, status: o.status, message: o.message })),
+  };
+}
+
 const WRITE_STATUSES = ['saved', 'failed', 'not-saved'];
 
 export function buildWriteResultCard(args = {}) {
@@ -410,5 +452,6 @@ export function buildWriteResultCard(args = {}) {
 export function buildCard(kind, args) {
   if (kind === 'record') return buildRecordCard(args);
   if (kind === 'quote-change') return buildQuoteChangeCard(args);
+  if (kind === 'quote-options') return buildQuoteOptionsCard(args);
   return buildWriteResultCard(args);
 }

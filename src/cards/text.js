@@ -60,15 +60,11 @@ export function recordText(card) {
   return out.filter(Boolean).join('\n');
 }
 
-export function quoteChangeText(card) {
-  const head = join([card.action, headline(card) !== card.action ? headline(card) : undefined]);
-  if (card.status === 'rejected') {
-    return [`Not saved. ${head ? `${head} was refused.` : 'The change was refused.'}`, card.message].filter(Boolean).join('\n');
-  }
-  if (card.status === 'needs-input') {
-    return [`Not saved yet. ${head ? `${head} needs more input.` : 'More input is needed.'}`, card.message].filter(Boolean).join('\n');
-  }
-  const out = [`Preview, not saved.${head ? ` ${head}` : ''}`];
+const changeHead = (card) => join([card.action, headline(card) !== card.action ? headline(card) : undefined]);
+
+// What a preview proposes, between its heading and the reply line.
+function previewLines(card) {
+  const out = [];
   if (card.summary) out.push(...markdownToTextLines(card.summary).slice(0, 14));
   else if (card.message) out.push(card.message);
   const shownFields = [...card.highlights, ...card.details];
@@ -78,8 +74,38 @@ export function quoteChangeText(card) {
   if (card.totals.length) out.push(`Totals: ${pairs(card.totals)}`);
   const fresh = (item) => !card.summary || !card.summary.includes(item);
   out.push(...card.consequences.filter(fresh).map((c) => `When you confirm: ${c}`));
-  out.push(...card.notes.filter(fresh).map((n) => `Note: ${n}`), card.confirmHint || 'Reply "confirm" to save it.', card.footerNote);
+  out.push(...card.notes.filter(fresh).map((n) => `Note: ${n}`));
+  return out;
+}
+
+export function quoteChangeText(card) {
+  const head = changeHead(card);
+  if (card.status === 'rejected') {
+    return [`Not saved. ${head ? `${head} was refused.` : 'The change was refused.'}`, card.message].filter(Boolean).join('\n');
+  }
+  if (card.status === 'needs-input') {
+    return [`Not saved yet. ${head ? `${head} needs more input.` : 'More input is needed.'}`, card.message].filter(Boolean).join('\n');
+  }
+  const out = [`Preview, not saved.${head ? ` ${head}` : ''}`, ...previewLines(card), card.confirmHint || 'Reply "confirm" to save it.', card.footerNote];
   return out.filter(Boolean).join('\n');
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const optionName = (o) => `Option ${o.number}${o.label ? ` · ${o.label}` : ''}`;
+
+export function quoteOptionsText(card) {
+  const shown = card.options.map((o) => {
+    const head = changeHead(o);
+    return [`${optionName(o)}${head ? `: ${head}` : ''}`, o.approvalNote, ...previewLines(o), o.confirmHint, o.footerNote].filter(Boolean).join('\n');
+  });
+  const refused = card.refused.map((o) => {
+    const why = o.status === 'rejected' ? 'it was refused' : 'it needs more input';
+    return `${optionName(o)}: not saved, ${why}.${o.message ? ` ${o.message}` : ''}`;
+  });
+  if (!shown.length && !refused.length) return 'There were no quote options to show.';
+  const more = card.more ? `${plural(card.more, 'more quote')} not shown. Ask for ${card.more === 1 ? 'it' : 'them'} in a new request.` : null;
+  const lead = shown.length ? `Preview: ${plural(shown.length, 'quote option')}, nothing saved yet.` : null;
+  return [lead, ...shown, refused.join('\n'), more].filter(Boolean).join('\n\n');
 }
 
 export function writeResultText(card) {
@@ -96,5 +122,6 @@ export function writeResultText(card) {
 export function cardText(card) {
   if (card.kind === 'record') return recordText(card);
   if (card.kind === 'quote-change') return quoteChangeText(card);
+  if (card.kind === 'quote-options') return quoteOptionsText(card);
   return writeResultText(card);
 }

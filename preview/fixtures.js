@@ -270,6 +270,46 @@ const CREATE_RESULT = {
   effects: ['It becomes the primary quote on the opportunity.'],
 };
 
+// One new quote in three versions that differ only in support, as card-ready literal values.
+const OPTION_DATES = { term: 12, start: '2026-12-01', end: '2027-11-30' };
+const OPTION_ROWS = [
+  { name: 'Pro Plan – Seat', quantity: 50, price: 108, listPrice: 120, discount: 10 },
+  { name: 'Storage Add-on (1 TB)', quantity: 2, price: 2000 },
+];
+const quoteOption = (label, support, extra = {}) => ({
+  label,
+  recordType: 'Quote',
+  status: 'preview',
+  draft: true,
+  action: 'Create a quote',
+  title: 'Example Co. – Expansion',
+  url: `${INSTANCE}/lightning/r/Opportunity/006EXAMPLE00002AAA/view`,
+  highlights: [
+    { label: 'Opportunity', value: 'Example Co. – Expansion' },
+    { label: 'Term (months)', value: OPTION_DATES.term, type: 'number' },
+    { label: 'Start Date', value: OPTION_DATES.start, type: 'date' },
+    { label: 'End Date', value: OPTION_DATES.end, type: 'date' },
+  ],
+  lines: {
+    title: 'Products',
+    item: { name: 'name', quantity: 'quantity', price: 'price', listPrice: 'listPrice', discount: 'discount' },
+    defaults: OPTION_DATES,
+    rows: support ? [...OPTION_ROWS, support] : OPTION_ROWS,
+  },
+  consequences: ['It becomes the primary quote on the opportunity.'],
+  confirmHint: 'Not saved until you reply “confirm” in the chat. Expires 10 minutes after the preview.',
+  ...extra,
+});
+const QUOTE_OPTIONS = [
+  quoteOption('No support'),
+  quoteOption('Standard support', { name: 'Standard Support', quantity: 1, price: 6000 }),
+  quoteOption(
+    'Premium support',
+    { name: 'Premium Support', quantity: 1, price: 11250, listPrice: 15000, discount: 25 },
+    { approvalNote: 'Needs approval: the support discount is above 20%.' },
+  ),
+];
+
 const SAVED_LINE_RESULT = {
   ok: true,
   quote: { id: QUOTE_ID, name: 'Example Co. – Annual Renewal', number: 'Q-0001', link: `${INSTANCE}/lightning/r/Quote/${QUOTE_ID}/view` },
@@ -466,6 +506,35 @@ export const FIXTURES = [
     },
   },
 
+  { id: 'quote-options', group: 'Quote options', label: '3 options · first open', kind: 'quote-options', args: { options: QUOTE_OPTIONS } },
+  {
+    id: 'quote-options-four',
+    group: 'Quote options',
+    label: '4 options · 3 shown',
+    kind: 'quote-options',
+    args: { options: [...QUOTE_OPTIONS, quoteOption('Enterprise support', { name: 'Enterprise Support', quantity: 1, price: 24000 })] },
+  },
+  {
+    id: 'quote-options-refused',
+    group: 'Quote options',
+    label: 'One option refused · text only for it',
+    kind: 'quote-options',
+    args: {
+      options: [
+        QUOTE_OPTIONS[0],
+        {
+          label: 'Standard support',
+          recordType: 'Quote',
+          status: 'rejected',
+          action: 'Create a quote',
+          title: 'Example Co. – Expansion',
+          message: 'Standard Support needs at least 100 seats on the quote.',
+        },
+        QUOTE_OPTIONS[2],
+      ],
+    },
+  },
+
   {
     id: 'saved-line-later-read',
     group: 'Write result',
@@ -559,4 +628,9 @@ export const FIXTURES = [
   },
 ];
 
-export const TOOL_FOR_KIND = { record: 'show_record_card', 'quote-change': 'show_quote_change', 'write-result': 'show_write_result' };
+export const TOOL_FOR_KIND = {
+  record: 'show_record_card',
+  'quote-change': 'show_quote_change',
+  'quote-options': 'show_quote_options',
+  'write-result': 'show_write_result',
+};

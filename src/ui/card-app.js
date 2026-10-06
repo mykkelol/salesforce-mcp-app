@@ -318,7 +318,7 @@ function withFooters(cards, ...lines) {
 // ---------- cards ----------
 // The record as it is, optionally with changes and new lines drawn in place.
 function recordView(c, { badge, extraChanges = [], afterCards = [], actions = [] } = {}) {
-  const header = card(pageHeader(icon(objectIconName(c.recordType)), eyebrowOf(c.recordType, c.subtitle), c.title, badge), highlightsPanel(c.highlights));
+  const header = card(pageHeader(icon(objectIconName(c.recordType)), c.eyebrow || eyebrowOf(c.recordType, c.subtitle), c.title, badge), highlightsPanel(c.highlights));
   let path = null;
   if (c.stage) {
     const step = (name, stateName) =>
@@ -362,6 +362,7 @@ const hasLaterRead = () => Boolean(state.input) && state.input.record !== undefi
 const drawsNothing = (model) =>
   (model.kind === 'record' && Boolean(model.error)) ||
   (model.kind === 'quote-change' && (model.status === 'needs-input' || model.status === 'rejected')) ||
+  (model.kind === 'quote-options' && !(model.options && model.options.length)) ||
   (model.kind === 'write-result' && !(model.status === 'saved' && hasLaterRead()));
 
 const countNewLines = (lines) => (lines && lines.style === 'items' ? lines.items.filter((l) => l.state === 'suggested').length : lines ? lines.newCount : 0);
@@ -382,7 +383,7 @@ function quoteChangeCard(c) {
     if (c.draft) node.replaceChildren(aiFrame('Creating new quote', [...node.childNodes]));
   } else {
     const header = card(
-      pageHeader(icon(objectIconName(c.recordType)), eyebrowOf(c.action || 'Proposed change', c.subtitle), c.title, statusBadge(c.status)),
+      pageHeader(icon(objectIconName(c.recordType)), c.eyebrow || eyebrowOf(c.action || 'Proposed change', c.subtitle), c.title, statusBadge(c.status)),
       headerNote(c.message && !c.summary ? h('p', { class: 'lead' }, c.message) : null),
     );
     const changes = c.changes.length
@@ -408,19 +409,54 @@ function confirmSection(c, summaryShown) {
 
 function confirmButton(c, list) {
   const button = h('button', { class: 'btn brand', type: 'button' }, 'Confirm');
+  const reply = c.number ? `confirm ${c.number}` : 'confirm';
   button.addEventListener('click', async () => {
-    document.getElementById('root').classList.add('settled');
+    (button.closest('.batch-item') || document.getElementById('root')).classList.add('settled');
     button.disabled = true;
     try {
-      const text = `confirm: ${eyebrowOf(c.action, c.title, c.subtitle)}`;
+      const text = `${reply}: ${c.number ? eyebrowOf(c.label, c.title) : eyebrowOf(c.action, c.title, c.subtitle)}`;
       await request('ui/message', { role: 'user', content: [{ type: 'text', text }] });
       button.textContent = 'Sent to chat';
     } catch {
       button.disabled = false;
-      list.append(warnItem('The chat didn’t accept the message. Reply “confirm” instead.'));
+      list.append(warnItem(`The chat didn’t accept the message. Reply “${reply}” instead.`));
     }
   });
   return button;
+}
+
+// Options for one request, such as the same quote with different support. Each
+// quote's own header is the toggle; collapsed, only that header shows.
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function collapsibleQuote(c, open) {
+  const item = quoteChangeCard(c);
+  item.classList.add('batch-item');
+  const header = item.querySelector('.page-header');
+  if (!header) return item;
+  if (c.approvalNote) {
+    header.querySelector('.grow').append(h('div', { class: 'approval-note' }, h('span', { html: WARNING_ICON, 'aria-label': 'Approval:' }), c.approvalNote));
+  }
+  const toggle = h('button', { class: 'collapse-toggle', type: 'button' });
+  const setOpen = (value) => {
+    item.classList.toggle('collapsed', !value);
+    toggle.setAttribute('aria-expanded', String(value));
+    toggle.setAttribute('aria-label', value ? 'Collapse quote' : 'Expand quote');
+  };
+  header.classList.add('toggles');
+  header.append(toggle);
+  header.addEventListener('click', () => setOpen(item.classList.contains('collapsed')));
+  setOpen(open);
+  return item;
+}
+
+function moreQuotes(hidden) {
+  return hidden > 0 ? card(h('div', { class: 'card-footer center' }, `${plural(hidden, 'more quote')} not shown. Ask for ${hidden === 1 ? 'it' : 'them'} in a new request.`)) : null;
+}
+
+function quoteOptionsCard(c) {
+  const rows = c.options.map((o, i) => collapsibleQuote({ ...o, eyebrow: eyebrowOf(`Option ${o.number}`, o.label) }, i === 0));
+  return h('div', { class: 'stack batch' }, rows, moreQuotes(c.more));
 }
 
 // A successful save shows the record as it is now, with nothing marking the save.
@@ -456,7 +492,8 @@ function render(model) {
   const root = document.getElementById('root');
   let node;
   try {
-    node = model.kind === 'record' ? recordCard(model) : model.kind === 'quote-change' ? quoteChangeCard(model) : writeResultCard(model);
+    const draw = { record: recordCard, 'quote-change': quoteChangeCard, 'quote-options': quoteOptionsCard }[model.kind] || writeResultCard;
+    node = draw(model);
   } catch (err) {
     node = stack(card(h('div', { class: 'empty' }, `Couldn't draw this card: ${err && err.message ? err.message : err}`)));
   }
