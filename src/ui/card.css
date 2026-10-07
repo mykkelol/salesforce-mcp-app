@@ -196,14 +196,10 @@ a.record-link:hover { border-bottom-style: solid; }
 .collapse-toggle:hover { background: rgba(0, 0, 0, 0.05); }
 .collapse-toggle::before { content: ''; width: 0.5rem; height: 0.5rem; border-right: 2px solid var(--text-weak); border-bottom: 2px solid var(--text-weak); transform: translateY(2px) rotate(-135deg); transition: transform 0.15s; }
 .batch-item.collapsed .collapse-toggle::before { transform: translateY(-2px) rotate(45deg); }
-.batch-item.collapsed > :not(:first-child):not(.triggers),
+.batch-item.collapsed > :not(:first-child),
 .batch-item.collapsed .ai-frame > :not(.ai-pill):not(:nth-child(2)),
-.batch-item.collapsed .card:has(> .page-header) > :not(.page-header),
-.batch-item.collapsed > .triggers .sf-section-body { display: none; }
+.batch-item.collapsed .card:has(> .page-header) > :not(.page-header) { display: none; }
 .batch-item.collapsed { gap: 0.25rem; }
-.batch-item.collapsed > .triggers .card-body { padding-bottom: 0.5rem; }
-.batch-item.collapsed > .triggers .sf-section { margin-bottom: 0; }
-.batch-item.collapsed > .triggers .sf-section > summary::before { transform: rotate(-45deg); }
 .eyebrow .record-link { white-space: nowrap; }
 /* a product another option has and this one doesn't */
 .option-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; margin-top: 0.25rem; font-size: 0.75rem; color: var(--text-weak); }
@@ -213,7 +209,7 @@ a.record-link:hover { border-bottom-style: solid; }
 
 /* what submitting a record would set off */
 .trigger-head { margin: 0 0 0.25rem; font-size: 0.8125rem; font-weight: 700; }
-.list + .trigger-head { margin-top: 0.75rem; }
+.trigger-list + .process-list { margin-top: 0.75rem; }
 .trigger-list li + li { margin-top: 0.5rem; }
 .trigger-name { font-weight: 600; }
 .trigger-note { margin: 0.75rem 0 0; }

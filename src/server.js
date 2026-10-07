@@ -12,9 +12,9 @@ export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 const MAX_INPUT_CHARS = 200_000;
 
 export const CARD_URIS = {
-  record: 'ui://salesforce-mcp-app/record-card-v6.html',
+  record: 'ui://salesforce-mcp-app/record-card-v7.html',
   'quote-change': 'ui://salesforce-mcp-app/quote-change-v4.html',
-  'quote-options': 'ui://salesforce-mcp-app/quote-options-v8.html',
+  'quote-options': 'ui://salesforce-mcp-app/quote-options-v9.html',
   'write-result': 'ui://salesforce-mcp-app/write-result-v4.html',
 };
 
@@ -27,13 +27,16 @@ const UI_META = { prefersBorder: false, csp: { resourceDomains: ['data:'] } };
 
 const LEGACY_URIS = {
   record: [
+    'ui://salesforce-mcp-app/record-card-v6.html',
     'ui://salesforce-mcp-app/record-card-v5.html',
     'ui://salesforce-mcp-app/record-card-v3.html',
     'ui://salesforce-mcp-app/record-card-v2.html',
     'ui://salesforce-mcp-app/record-card-v1.html',
   ],
   'quote-change': ['ui://salesforce-mcp-app/quote-change-v3.html', 'ui://salesforce-mcp-app/quote-change-v2.html', 'ui://salesforce-mcp-app/quote-change-v1.html'],
-  'quote-options': ['ui://salesforce-mcp-app/quote-options-v7.html', 'ui://salesforce-mcp-app/quote-options-v6.html', 'ui://salesforce-mcp-app/quote-options-v5.html', 'ui://salesforce-mcp-app/quote-options-v4.html'],
+  'quote-options': [
+    'ui://salesforce-mcp-app/quote-options-v8.html',
+    'ui://salesforce-mcp-app/quote-options-v7.html', 'ui://salesforce-mcp-app/quote-options-v6.html', 'ui://salesforce-mcp-app/quote-options-v5.html', 'ui://salesforce-mcp-app/quote-options-v4.html'],
   'write-result': ['ui://salesforce-mcp-app/write-result-v3.html', 'ui://salesforce-mcp-app/write-result-v2.html', 'ui://salesforce-mcp-app/write-result-v1.html'],
 };
 
@@ -151,7 +154,7 @@ const Triggers = z
       .describe('What else runs after the submit or the approval, in order, with `when`, for example "When approved".'),
     note: z.string().optional(),
   })
-  .describe('What submitting the record for approval would set off, shown as a "What This Triggers" section.');
+  .describe('What submitting the record for approval would set off, shown as a "When You Confirm" section.');
 
 const recordCard = {
   ...common,

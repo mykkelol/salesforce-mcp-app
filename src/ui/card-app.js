@@ -335,8 +335,8 @@ function withFooters(cards, ...lines) {
 
 // ---------- cards ----------
 // The record as it is, optionally with changes and new lines drawn in place.
-function recordView(c, { badge, extraChanges = [], afterCards = [], actions = [] } = {}) {
-  const header = card(pageHeader(icon(objectIconName(c.recordType)), c.eyebrow || eyebrowOf(c.recordType, c.subtitle), c.title, badge), highlightsPanel(c.highlights));
+function recordView(c, { badge, meta, extraChanges = [], afterCards = [], actions = [] } = {}) {
+  const header = card(pageHeader(icon(objectIconName(c.recordType)), c.eyebrow || eyebrowOf(c.recordType, c.subtitle), c.title, badge, meta), highlightsPanel(c.highlights));
   let path = null;
   if (c.stage) {
     const step = (name, stateName) =>
@@ -386,11 +386,11 @@ function triggersCard(t, hint) {
   const process = (p) => h('li', null, p.name, p.when ? h('span', { class: 'muted' }, ` · ${p.when}`) : null);
   const body = [
     t.approvals.length ? [h('div', { class: 'trigger-head' }, 'Approvals'), h('ul', { class: 'list trigger-list' }, t.approvals.map(approval))] : null,
-    t.processes.length ? [h('div', { class: 'trigger-head' }, 'Then'), h('ul', { class: 'list' }, t.processes.map(process))] : null,
+    t.processes.length ? h('ul', { class: 'list process-list' }, t.processes.map(process)) : null,
     t.note ? h('p', { class: 'trigger-note small muted' }, t.note) : null,
     hint ? h('p', { class: 'trigger-note' }, hint) : null,
   ];
-  const title = ['What This Triggers', summary(triggersSummary(t))];
+  const title = ['When You Confirm', summary(triggersSummary(t))];
   return h('div', { class: 'card triggers' }, cardBody(section(title, false, body)));
 }
 
@@ -495,8 +495,7 @@ function confirmButton(c, list) {
 }
 
 // Options for one request, such as the same quote with different support. Each
-// quote's own header is the toggle; every option starts collapsed, showing only
-// that header, and in created mode also the header of what submitting it triggers.
+// quote's own header is the toggle; every option starts collapsed, showing only that header.
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function collapsible(item) {
   item.classList.add('batch-item');
@@ -511,15 +510,6 @@ function collapsible(item) {
   header.classList.add('toggles');
   header.append(toggle);
   header.addEventListener('click', () => setOpen(item.classList.contains('collapsed')));
-  const triggers = item.querySelector(':scope > .triggers summary');
-  if (triggers) {
-    triggers.addEventListener('click', (e) => {
-      if (!item.classList.contains('collapsed')) return;
-      e.preventDefault();
-      triggers.parentElement.open = true;
-      setOpen(true);
-    });
-  }
   setOpen(false);
   return item;
 }
@@ -539,7 +529,13 @@ function confirmAllBar(options) {
   return h('div', { class: 'actions' }, replyButton('Confirm all', `confirm all: ${plural(options.length, 'quote')}`, root, refusedLine('confirm all')));
 }
 
-// A saved quote: its number links to it, and what submitting it triggers stays in view.
+// Under an option's name: how many products it has and what it leaves out next to the others.
+const optionMeta = (o) =>
+  hasLines(o.lines) && o.lines.style === 'items'
+    ? h('div', { class: 'option-meta' }, h('span', null, plural(o.lines.items.length, 'product')), (o.missing || []).map((m) => h('span', { class: 'chip missing' }, m)))
+    : null;
+
+// A quote just created for the user to pick from, in the purple frame until one is submitted.
 function savedQuoteCard(c) {
   const name = c.subtitle ? `${c.recordType} ${c.subtitle}` : `Open ${c.recordType.toLowerCase()}`;
   const link = c.url
@@ -552,7 +548,9 @@ function savedQuoteCard(c) {
   const submitHint = `Reply “${reply}” to make this the primary quote and submit it for approval.`;
   const submit = canMessage() ? replyButton('Submit', `${reply}: ${eyebrowOf(c.label, c.title)}`, optionOrRoot, refusedLine(reply)) : null;
   if (submit) submit.setAttribute('aria-label', `Make option ${c.number} the primary quote and submit it`);
-  return recordView({ ...c, eyebrow, submitHint }, { actions: [submit] });
+  const node = recordView({ ...c, eyebrow, submitHint }, { meta: optionMeta(c), actions: [submit] });
+  node.replaceChildren(aiFrame('Creating Order Form', [...node.childNodes]));
+  return node;
 }
 
 // A quote that would be created, drawn like the quote card. Collapsed, its header still
@@ -562,8 +560,7 @@ function previewOptionCard(o) {
   if (!hasLines(o.lines) || o.lines.style !== 'items') return quoteChangeCard(o);
   const items = o.lines.items;
   const missing = o.missing || [];
-  const meta = h('div', { class: 'option-meta' }, h('span', null, plural(items.length, 'product')), missing.map((m) => h('span', { class: 'chip missing' }, m)));
-  const header = card(pageHeader(icon(objectIconName(o.recordType)), o.eyebrow, o.title, null, meta));
+  const header = card(pageHeader(icon(objectIconName(o.recordType)), o.eyebrow, o.title, null, optionMeta(o)));
   const list = itemList(items);
   missing.forEach((m) => list.append(h('div', { class: 'line-row missing' }, h('div', { class: 'line-name' }, m))));
   const title = [o.lines.title, summary(plural(items.length, 'item'), totalSummary(o.totals))];

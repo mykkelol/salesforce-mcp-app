@@ -6,7 +6,7 @@
 import { formatValue, isEmpty, isNumericType, isPlainObject, lightningRecordUrl, safeHttpsUrl } from './format.js';
 
 // Bumped when the card model changes shape; the card rebuilds older models from the tool input.
-export const MODEL_VERSION = 5;
+export const MODEL_VERSION = 6;
 
 const MAX_FIELDS = 30;
 const MAX_ROWS = 50;
@@ -280,6 +280,19 @@ export function stagePath(stages, sources) {
 
 const MAX_TRIGGERS = 6;
 
+// Words compared by their first five letters, so "approves" in a note matches "Approved" in an item.
+const STEM_STOPWORDS = new Set(['the', 'and', 'this', 'that', 'its', 'for', 'from', 'with', 'when', 'are', 'can', 'once']);
+const stems = (s) =>
+  (s.toLowerCase().match(/[a-z]+/g) || []).filter((w) => w.length > 2 && !STEM_STOPWORDS.has(w)).map((w) => w.slice(0, 5));
+// A note that says an item again, such as "…submitting approves it right away" beside "Approved right away".
+const repeatsAnItem = (note, names) => {
+  const said = new Set(stems(note));
+  return names.some((name) => {
+    const words = stems(name);
+    return words.length > 1 && words.every((w) => said.has(w));
+  });
+};
+
 // What submitting the record would set off. Approvals can run in parallel, so they keep the
 // order they were given without being numbered.
 function triggerList(t, sources) {
@@ -290,16 +303,16 @@ function triggerList(t, sources) {
       .slice(0, MAX_TRIGGERS)
       .map(entry)
       .filter((x) => x.name);
-  return {
-    approvals: named(t.approvals, (a) => ({
-      name: textOf(a.name, sources),
-      approver: textOf(a.approver, sources),
-      reason: textOf(a.reason, sources),
-      steps: (Array.isArray(a.steps) ? a.steps : []).slice(0, MAX_TRIGGERS).map((s) => textOf(s, sources)).filter(Boolean),
-    })),
-    processes: named(t.processes, (p) => ({ name: textOf(p.name, sources), when: textOf(p.when, sources) })),
-    note: textOf(t.note, sources),
-  };
+  const approvals = named(t.approvals, (a) => ({
+    name: textOf(a.name, sources),
+    approver: textOf(a.approver, sources),
+    reason: textOf(a.reason, sources),
+    steps: (Array.isArray(a.steps) ? a.steps : []).slice(0, MAX_TRIGGERS).map((s) => textOf(s, sources)).filter(Boolean),
+  }));
+  const processes = named(t.processes, (p) => ({ name: textOf(p.name, sources), when: textOf(p.when, sources) }));
+  const note = textOf(t.note, sources);
+  const names = [...approvals, ...processes].map((x) => x.name);
+  return { approvals, processes, note: note && !repeatsAnItem(note, names) ? note : undefined };
 }
 
 const originOf = (url) => (url ? new URL(url).origin : undefined);
@@ -493,7 +506,7 @@ export function buildQuoteOptionsCard(args = {}) {
     kind: 'quote-options',
     v: MODEL_VERSION,
     mode,
-    options: mode === 'created' ? options : options.map(preview),
+    options: mode === 'created' ? options.map((o, i) => ({ ...o, missing: missing[i] })) : options.map(preview),
     more: Math.max(0, drawn.length - SHOWN_OPTIONS),
     refused: all
       .filter((o) => !drawn.includes(o))

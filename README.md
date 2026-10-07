@@ -48,7 +48,7 @@ In a change preview, `lines.new` lists lines to add (shown as suggested), and a 
 It needs Node 20 or later. It speaks MCP over stdio and reads no environment variables.
 
 ```bash
-npx -y --package=github:<github-username>/salesforce-mcp-app#v0.7.1 salesforce-mcp-app
+npx -y --package=github:<github-username>/salesforce-mcp-app#v0.8.0 salesforce-mcp-app
 ```
 
 As an MCP server entry:
@@ -56,7 +56,7 @@ As an MCP server entry:
 ```json
 {
   "command": "npx",
-  "args": ["-y", "--package=github:<github-username>/salesforce-mcp-app#v0.7.1", "salesforce-mcp-app"]
+  "args": ["-y", "--package=github:<github-username>/salesforce-mcp-app#v0.8.0", "salesforce-mcp-app"]
 }
 ```
 
