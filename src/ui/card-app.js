@@ -243,12 +243,13 @@ const totalSummary = (totals) => {
   return main ? `${main.label} ${main.value}` : null;
 };
 
-function linesCard(lines, totals) {
+// An option's summary is only its item count; it starts open with the option.
+function linesCard(lines, totals, { open = false, short = false } = {}) {
   const suggested = lines.style === 'items' ? lines.items.filter((l) => l.state === 'suggested').length : 0;
   const existing = lines.style === 'items' ? lines.items.length - suggested : lines.rows.length;
-  const title = [lines.title, summary(`${existing} item${existing === 1 ? '' : 's'}`, totalSummary(totals)), suggested ? suggestionsPill(suggested) : null];
+  const title = [lines.title, summary(`${existing} item${existing === 1 ? '' : 's'}`, short ? null : totalSummary(totals)), suggested ? suggestionsPill(suggested) : null];
   const body = lines.style === 'items' ? itemList(lines.items) : lineTable(lines);
-  return card(cardBody(section(title, false, body, totalsRow(totals, true), lines.note ? h('p', { class: 'footnote' }, lines.note) : null)));
+  return card(cardBody(section(title, open, body, totalsRow(totals, true), lines.note ? h('p', { class: 'footnote' }, lines.note) : null)));
 }
 
 const isZero = (value) => /^[^\d-]*-?0(\.0+)?$/.test(String(value).replace(/[,\s%]/g, ''));
@@ -335,7 +336,7 @@ function withFooters(cards, ...lines) {
 
 // ---------- cards ----------
 // The record as it is, optionally with changes and new lines drawn in place.
-function recordView(c, { badge, meta, extraChanges = [], afterCards = [], actions = [] } = {}) {
+function recordView(c, { badge, meta, option = false, extraChanges = [], afterCards = [], actions = [] } = {}) {
   const header = card(pageHeader(icon(objectIconName(c.recordType)), c.eyebrow || eyebrowOf(c.recordType, c.subtitle), c.title, badge, meta), highlightsPanel(c.highlights));
   let path = null;
   if (c.stage) {
@@ -354,9 +355,10 @@ function recordView(c, { badge, meta, extraChanges = [], afterCards = [], action
     sections.push(section(title, false, detailRows(details)));
   }
   const info = sections.length ? card(cardBody(sections)) : null;
-  const lines = hasLines(c.lines) ? linesCard(c.lines, c.totals) : null;
+  const linesOpen = option || (c.kind === 'record' && c.recordType === 'Opportunity');
+  const lines = hasLines(c.lines) ? linesCard(c.lines, c.totals, { open: linesOpen, short: option }) : null;
   const notes = c.notes && c.notes.length && c.kind !== 'quote-change' ? card(cardBody(note('info', c.notes))) : null;
-  const triggers = c.triggers ? triggersCard(c.triggers, c.submitHint) : null;
+  const triggers = c.triggers ? approvalsCard(c.triggers.approvals.map(approvalItem), null, option).card : null;
   const more = c.otherRecords ? `Showing 1 of ${c.otherRecords + 1} matching records` : null;
   const cards = withFooters([header, path, info, lines, notes, triggers, ...afterCards], more && h('div', { class: 'card-footer center' }, more), footerLine(c.footerNote));
   return stack(cards, actionBar(linkButton(c.url), extraButtons(c.links), actions));
@@ -368,30 +370,14 @@ function recordCard(c) {
 
 const counted = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-function triggersSummary(t) {
-  return eyebrowOf(t.approvals.length ? counted(t.approvals.length, 'approval', 'approvals') : 'No approvals', t.processes.length ? counted(t.processes.length, 'process', 'processes') : null);
-}
+const approvalItem = (a) => h('li', null, a.sentence, a.detail ? h('div', { class: 'small muted' }, a.detail) : null);
 
-// What submitting the record would set off. Approvals can run in parallel, so they aren't numbered.
-function triggersCard(t, hint) {
-  const approval = (a) =>
-    h(
-      'li',
-      null,
-      h('div', { class: 'trigger-name' }, a.name),
-      a.approver ? h('div', { class: 'small' }, `Approver: ${a.approver}`) : null,
-      a.steps.length ? h('div', { class: 'small' }, a.steps.join(' → ')) : null,
-      a.reason ? h('div', { class: 'small muted' }, a.reason) : null,
-    );
-  const process = (p) => h('li', null, p.name, p.when ? h('span', { class: 'muted' }, ` · ${p.when}`) : null);
-  const body = [
-    t.approvals.length ? [h('div', { class: 'trigger-head' }, 'Approvals'), h('ul', { class: 'list trigger-list' }, t.approvals.map(approval))] : null,
-    t.processes.length ? h('ul', { class: 'list process-list' }, t.processes.map(process)) : null,
-    t.note ? h('p', { class: 'trigger-note small muted' }, t.note) : null,
-    hint ? h('p', { class: 'trigger-note' }, hint) : null,
-  ];
-  const title = ['When You Confirm', summary(triggersSummary(t))];
-  return h('div', { class: 'card triggers' }, cardBody(section(title, false, body)));
+// The approvals submitting it needs, one sentence each, which can run in parallel. `list` takes a refused-reply note.
+function approvalsCard(items, hint, open) {
+  const list = h('ul', { class: 'list trigger-list' }, items.length ? items : h('li', null, 'No approvals required.'));
+  const title = ['When You Confirm', summary(counted(items.length, 'approval', 'approvals') + ' required')];
+  const body = [list, hint ? h('p', { class: 'trigger-note' }, hint) : null];
+  return { card: h('div', { class: 'card triggers' }, cardBody(section(title, open, body))), list };
 }
 
 function statusBadge(status) {
@@ -451,7 +437,7 @@ function quoteChangeCard(c) {
 const warnItem = (text) => h('li', { class: 'warn' }, h('span', { class: 'warn-icon', html: WARNING_ICON, 'aria-label': 'Warning:' }), text);
 
 // Items the expanded preview text already says are left out.
-function confirmSection(c, summaryShown, open = false) {
+function confirmSection(c, summaryShown) {
   const fresh = (item) => !summaryShown || !c.summary.includes(item);
   const warnings = c.notes.filter(fresh);
   if (c.status !== 'preview') return { card: warnings.length ? card(cardBody(note('warning', warnings))) : null, button: null };
@@ -461,7 +447,7 @@ function confirmSection(c, summaryShown, open = false) {
     ? h('span', { class: 'summary-warn', html: WARNING_ICON, role: 'img', 'aria-label': plural(warnings.length, 'note'), title: plural(warnings.length, 'note') })
     : null;
   const title = ['When You Confirm', summary(`Reply “${replyWord(c)}”`), flag];
-  return { card: card(cardBody(section(title, open, list))), button: canMessage() ? confirmButton(c, list) : null };
+  return { card: card(cardBody(section(title, false, list))), button: canMessage() ? confirmButton(c, list) : null };
 }
 
 const replyWord = (c) => (c.number ? `confirm ${c.number}` : 'confirm');
@@ -529,11 +515,12 @@ function confirmAllBar(options) {
   return h('div', { class: 'actions' }, replyButton('Confirm all', `confirm all: ${plural(options.length, 'quote')}`, root, refusedLine('confirm all')));
 }
 
-// Under an option's name: how many products it has and what it leaves out next to the others.
-const optionMeta = (o) =>
-  hasLines(o.lines) && o.lines.style === 'items'
-    ? h('div', { class: 'option-meta' }, h('span', null, plural(o.lines.items.length, 'product')), (o.missing || []).map((m) => h('span', { class: 'chip missing' }, m)))
-    : null;
+// Under an option's name: how many products it has, and a red badge when it needs approval.
+function optionMeta(o, approvals) {
+  const count = hasLines(o.lines) && o.lines.style === 'items' ? h('span', null, plural(o.lines.items.length, 'product')) : null;
+  const badge = approvals > 0 ? h('span', { class: 'badge error' }, 'Requires Approvals') : null;
+  return count || badge ? h('div', { class: 'option-meta' }, count, badge) : null;
+}
 
 // A quote just created for the user to pick from, in the purple frame until one is submitted.
 function savedQuoteCard(c) {
@@ -543,30 +530,28 @@ function savedQuoteCard(c) {
     : c.subtitle
       ? name
       : null;
-  const eyebrow = [eyebrowOf(`Option ${c.number}`, c.label), link ? ' · ' : null, link];
+  const eyebrow = [`Option ${c.number}`, link ? [' · ', link] : null, c.label ? ` · ${c.label}` : null];
   const reply = `submit ${c.number}`;
-  const submitHint = `Reply “${reply}” to make this the primary quote and submit it for approval.`;
   const submit = canMessage() ? replyButton('Submit', `${reply}: ${eyebrowOf(c.label, c.title)}`, optionOrRoot, refusedLine(reply)) : null;
   if (submit) submit.setAttribute('aria-label', `Make option ${c.number} the primary quote and submit it`);
-  const node = recordView({ ...c, eyebrow, submitHint }, { meta: optionMeta(c), actions: [submit] });
-  node.replaceChildren(aiFrame('Creating Order Form', [...node.childNodes]));
+  const approvals = c.triggers ? c.triggers.approvals.length : 0;
+  const node = recordView({ ...c, eyebrow }, { meta: optionMeta(c, approvals), option: true, actions: [submit] });
+  node.replaceChildren(aiFrame(`Creating Order Form for Option ${c.number}`, [...node.childNodes]));
   return node;
 }
 
-// A quote that would be created, drawn like the quote card. Collapsed, its header still
-// says what it leaves out next to the other options; open, it shows its products and
-// what confirming it does.
+// A quote that would be created, drawn like the quote card. Open, it shows its products and
+// the approvals it would need: its triggers' when a preview carries them, or else its approval note.
 function previewOptionCard(o) {
   if (!hasLines(o.lines) || o.lines.style !== 'items') return quoteChangeCard(o);
   const items = o.lines.items;
-  const missing = o.missing || [];
-  const header = card(pageHeader(icon(objectIconName(o.recordType)), o.eyebrow, o.title, null, optionMeta(o)));
-  const list = itemList(items);
-  missing.forEach((m) => list.append(h('div', { class: 'line-row missing' }, h('div', { class: 'line-name' }, m))));
-  const title = [o.lines.title, summary(plural(items.length, 'item'), totalSummary(o.totals))];
-  const products = card(cardBody(section(title, true, list, totalsRow(o.totals, true), o.lines.note ? h('p', { class: 'footnote' }, o.lines.note) : null)));
-  const confirm = confirmSection(o, false, true);
-  const node = stack(withFooters([header, products, confirm.card], footerLine(o.footerNote)), actionBar(linkButton(o.url), extraButtons(o.links), confirm.button));
+  const approvals = o.triggers ? o.triggers.approvals.map(approvalItem) : o.approvalNote ? [h('li', null, o.approvalNote)] : [];
+  const header = card(pageHeader(icon(objectIconName(o.recordType)), o.eyebrow, o.title, null, optionMeta(o, approvals.length)));
+  const title = [o.lines.title, summary(plural(items.length, 'item'))];
+  const products = card(cardBody(section(title, true, itemList(items), totalsRow(o.totals, true), o.lines.note ? h('p', { class: 'footnote' }, o.lines.note) : null)));
+  const confirm = approvalsCard(approvals, o.confirmHint, true);
+  const button = canMessage() ? confirmButton(o, confirm.list) : null;
+  const node = stack(withFooters([header, products, confirm.card], footerLine(o.footerNote)), actionBar(linkButton(o.url), extraButtons(o.links), button));
   node.replaceChildren(aiFrame('Creating new quote', [...node.childNodes]));
   return node;
 }

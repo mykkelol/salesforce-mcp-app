@@ -9,9 +9,9 @@ Render-only MCP App cards for Salesforce data: a record card, a change preview, 
 
 | Tool | Shows |
 | --- | --- |
-| `show_record_card` | One record: highlights, a stage path, an Information section, line items, totals, and what submitting it for approval triggers. A highlight or field with a `url`, and a line with a record id or `url`, link to the record |
+| `show_record_card` | One record: highlights, a stage path, an Information section, line items, totals, and the approvals submitting it would need. A highlight or field with a `url`, and a line with a record id or `url`, link to the record |
 | `show_quote_change` | A proposed change before saving, drawn on the record: each changed value with the old one struck through, suggested lines, and what happens when the user confirms. With `draft`, a record that doesn't exist yet, in a purple frame. A change that needs input or was refused draws no card; the text version carries the message |
-| `show_quote_options` | 2 or 3 alternative quotes for one request, numbered, each with a short label. Every option starts collapsed. Before saving, the user replies "confirm 1", "confirm 2" or "confirm 3" for one, or "confirm all", as each option's When You Confirm says. Each option is drawn like the quote it would create: its header names it and says which products it leaves out that another option has (such as "No support line"), and opened, it shows its product lines with prices and When You Confirm, where its approval note leads its notes. With `mode` created, each saved quote shows its number, its link and what submitting it triggers, and the user replies "submit N" to make one primary and submit it. More than 3 show as a count. Replies are typed because a card can't post to the chat in every host |
+| `show_quote_options` | 2 or 3 alternative quotes for one request, numbered, each with a short label. Every option starts collapsed. Before saving, the user replies "confirm 1", "confirm 2" or "confirm 3" for one, or "confirm all", as each option's When You Confirm says. Each option is drawn like the quote it would create: its header names it, counts its products and shows a red "Requires Approvals" badge when it needs approval, and opened, it shows its product lines with prices and When You Confirm, which lists the approvals it needs. With `mode` created, each saved quote's header also has its number and link, and the user replies "submit N" to make one primary and submit it. More than 3 show as a count. Replies are typed because a card can't post to the chat in every host |
 | `show_write_result` | After a successful save with a later read passed as `record`, that record as it is now, with nothing marking the save. Anything else draws no card; the text version carries the message |
 
 Every section of a card starts collapsed, with a summary of what's inside. In a host that caps the card's height, the bottom edge fades and a button scrolls down while there's more below.
@@ -48,7 +48,7 @@ In a change preview, `lines.new` lists lines to add (shown as suggested), and a 
 It needs Node 20 or later. It speaks MCP over stdio and reads no environment variables.
 
 ```bash
-npx -y --package=github:<github-username>/salesforce-mcp-app#v0.8.0 salesforce-mcp-app
+npx -y --package=github:<github-username>/salesforce-mcp-app#v0.9.0 salesforce-mcp-app
 ```
 
 As an MCP server entry:
@@ -56,7 +56,7 @@ As an MCP server entry:
 ```json
 {
   "command": "npx",
-  "args": ["-y", "--package=github:<github-username>/salesforce-mcp-app#v0.8.0", "salesforce-mcp-app"]
+  "args": ["-y", "--package=github:<github-username>/salesforce-mcp-app#v0.9.0", "salesforce-mcp-app"]
 }
 ```
 

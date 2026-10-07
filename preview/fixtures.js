@@ -325,8 +325,8 @@ const savedOption = (label, n, support, triggers) => ({
   url: `${INSTANCE}/lightning/r/Quote/0Q0EXAMPLE0000${n}AAA/view`,
   highlights: [
     { label: 'Status', value: 'Draft' },
-    { label: 'Opportunity', value: 'Example Co. – Expansion' },
-    { label: 'Account', value: 'Example Co.' },
+    { label: 'Opportunity', value: 'Example Co. – Expansion', url: `${INSTANCE}/lightning/r/Opportunity/006EXAMPLE00001AAA/view` },
+    { label: 'Account', value: 'Example Co.', url: `${INSTANCE}/lightning/r/Account/001EXAMPLE00001AAA/view` },
   ],
   stages: { steps: ['Draft', 'Submitted', 'Approved'], current: 'Draft' },
   lines: {

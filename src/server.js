@@ -12,10 +12,10 @@ export const MCP_APP_MIME = 'text/html;profile=mcp-app';
 const MAX_INPUT_CHARS = 200_000;
 
 export const CARD_URIS = {
-  record: 'ui://salesforce-mcp-app/record-card-v7.html',
-  'quote-change': 'ui://salesforce-mcp-app/quote-change-v4.html',
-  'quote-options': 'ui://salesforce-mcp-app/quote-options-v9.html',
-  'write-result': 'ui://salesforce-mcp-app/write-result-v4.html',
+  record: 'ui://salesforce-mcp-app/record-card-v8.html',
+  'quote-change': 'ui://salesforce-mcp-app/quote-change-v5.html',
+  'quote-options': 'ui://salesforce-mcp-app/quote-options-v10.html',
+  'write-result': 'ui://salesforce-mcp-app/write-result-v5.html',
 };
 
 // Cards already in a chat point at these. They get the current card, which
@@ -27,17 +27,19 @@ const UI_META = { prefersBorder: false, csp: { resourceDomains: ['data:'] } };
 
 const LEGACY_URIS = {
   record: [
+    'ui://salesforce-mcp-app/record-card-v7.html',
     'ui://salesforce-mcp-app/record-card-v6.html',
     'ui://salesforce-mcp-app/record-card-v5.html',
     'ui://salesforce-mcp-app/record-card-v3.html',
     'ui://salesforce-mcp-app/record-card-v2.html',
     'ui://salesforce-mcp-app/record-card-v1.html',
   ],
-  'quote-change': ['ui://salesforce-mcp-app/quote-change-v3.html', 'ui://salesforce-mcp-app/quote-change-v2.html', 'ui://salesforce-mcp-app/quote-change-v1.html'],
+  'quote-change': ['ui://salesforce-mcp-app/quote-change-v4.html', 'ui://salesforce-mcp-app/quote-change-v3.html', 'ui://salesforce-mcp-app/quote-change-v2.html', 'ui://salesforce-mcp-app/quote-change-v1.html'],
   'quote-options': [
+    'ui://salesforce-mcp-app/quote-options-v9.html',
     'ui://salesforce-mcp-app/quote-options-v8.html',
     'ui://salesforce-mcp-app/quote-options-v7.html', 'ui://salesforce-mcp-app/quote-options-v6.html', 'ui://salesforce-mcp-app/quote-options-v5.html', 'ui://salesforce-mcp-app/quote-options-v4.html'],
-  'write-result': ['ui://salesforce-mcp-app/write-result-v3.html', 'ui://salesforce-mcp-app/write-result-v2.html', 'ui://salesforce-mcp-app/write-result-v1.html'],
+  'write-result': ['ui://salesforce-mcp-app/write-result-v4.html', 'ui://salesforce-mcp-app/write-result-v3.html', 'ui://salesforce-mcp-app/write-result-v2.html', 'ui://salesforce-mcp-app/write-result-v1.html'],
 };
 
 const INSTRUCTIONS =
@@ -151,10 +153,10 @@ const Triggers = z
       .array(z.object({ name: z.string(), when: z.string().optional() }))
       .max(6)
       .optional()
-      .describe('What else runs after the submit or the approval, in order, with `when`, for example "When approved".'),
-    note: z.string().optional(),
+      .describe('What else runs after the submit or the approval, in order, with `when`. Accepted but not shown; can be left out.'),
+    note: z.string().optional().describe('Accepted but not shown.'),
   })
-  .describe('What submitting the record for approval would set off, shown as a "When You Confirm" section.');
+  .describe('What submitting the record for approval would set off. Its approvals are shown as a "When You Confirm" section, one sentence each.');
 
 const recordCard = {
   ...common,
@@ -259,8 +261,8 @@ const TOOLS = [
       '"confirm 2" or "confirm 3" for one quote, or "confirm all" for every one shown. An option with status ' +
       '`needs-input` or `rejected` isn’t drawn, and the text version carries its message. After the quotes are ' +
       'saved (`mode` created), each option takes the same input as a show_record_card card of the saved quote, ' +
-      'with its `triggers`; all start collapsed, showing the quote number, its link and what submitting it ' +
-      'triggers, and the user replies "submit N" to make one primary and submit it. Options are numbered in the ' +
+      'with its `triggers`; all start collapsed, showing the quote number and its link, the label, the product ' +
+      'count and a "Requires Approvals" badge, and the user replies "submit N" to make one primary and submit it. Options are numbered in the ' +
       'order you pass them; up to 3 are shown. Render-only: saving and submitting happen through your Salesforce ' +
       'tools, only after the user replies.',
     inputSchema: z.object({

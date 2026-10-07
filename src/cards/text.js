@@ -47,17 +47,10 @@ function linesText(lines, max = 5) {
 const notes = (card) => card.notes.map((n) => `Note: ${n}`);
 const fieldText = (f) => (f.change ? `${f.label}: ${f.change.before} → ${f.change.after}` : `${f.label}: ${f.value}`);
 
-// Reasons are often whole sentences, so each approval gets its own line.
+// Only the approvals submitting it needs, one sentence each.
 function triggersText(t) {
   if (!t) return [];
-  const approval = (a) =>
-    `Approval on submit: ${a.name}${a.approver ? ` (approver: ${a.approver})` : ''}${a.steps.length ? ` (${a.steps.join(' → ')})` : ''}${a.reason ? `. ${a.reason}` : ''}`;
-  const process = (p) => `${p.name}${p.when ? ` (${p.when})` : ''}`;
-  return [
-    ...(t.approvals.length ? t.approvals.map(approval) : ['Approvals on submit: none']),
-    t.processes.length ? `Then: ${t.processes.map(process).join('; ')}` : null,
-    t.note,
-  ].filter(Boolean);
+  return t.approvals.length ? t.approvals.map((a) => (a.detail ? `${a.sentence} ${a.detail}` : a.sentence)) : ['No approvals required.'];
 }
 
 export function recordText(card) {
@@ -106,20 +99,15 @@ export function quoteChangeText(card) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const optionName = (o) => `Option ${o.number}${o.label ? ` · ${o.label}` : ''}`;
-const orList = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}` : items[0]);
 
 // Saved quotes: the user picks one to make primary and submit.
 function savedOptionsText(card) {
   if (!card.options.length) return 'There were no saved quotes to show.';
-  const replies = orList(card.options.map((o) => `“submit ${o.number}”`));
-  const lead =
-    card.options.length === 1
-      ? `Quote created. Reply ${replies} to make it the primary quote and submit it for approval.`
-      : `${plural(card.options.length, 'quote')} created. Reply ${replies} to make one the primary quote and submit it for approval.`;
+  const lead = card.options.length === 1 ? 'Quote created.' : `${plural(card.options.length, 'quote')} created.`;
   const shown = card.options.map((o) => {
     const number = o.subtitle ? `${o.recordType} ${o.subtitle}` : undefined;
     return [
-      `${optionName(o)}: ${join([number, o.title])}`,
+      `${join([`Option ${o.number}`, number, o.label])}: ${o.title}`,
       ...linesText(o.lines),
       o.totals.length ? `Totals: ${pairs(o.totals)}` : null,
       ...triggersText(o.triggers),
@@ -136,8 +124,7 @@ export function quoteOptionsText(card) {
   if (card.mode === 'created') return savedOptionsText(card);
   const shown = card.options.map((o) => {
     const head = changeHead(o);
-    const missing = o.missing && o.missing.length ? `${o.missing.join(', ')}.` : null;
-    return [`${optionName(o)}${head ? `: ${head}` : ''}`, missing, ...previewLines(o), o.confirmHint, o.footerNote].filter(Boolean).join('\n');
+    return [`${optionName(o)}${head ? `: ${head}` : ''}`, ...previewLines(o), o.confirmHint, o.footerNote].filter(Boolean).join('\n');
   });
   const refused = card.refused.map((o) => {
     const why = o.status === 'rejected' ? 'it was refused' : 'it needs more input';

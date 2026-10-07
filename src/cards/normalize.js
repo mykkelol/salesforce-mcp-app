@@ -6,7 +6,7 @@
 import { formatValue, isEmpty, isNumericType, isPlainObject, lightningRecordUrl, safeHttpsUrl } from './format.js';
 
 // Bumped when the card model changes shape; the card rebuilds older models from the tool input.
-export const MODEL_VERSION = 6;
+export const MODEL_VERSION = 7;
 
 const MAX_FIELDS = 30;
 const MAX_ROWS = 50;
@@ -280,21 +280,25 @@ export function stagePath(stages, sources) {
 
 const MAX_TRIGGERS = 6;
 
-// Words compared by their first five letters, so "approves" in a note matches "Approved" in an item.
+// Words compared by their first five letters, so "review" in a reason matches "Review" in a name.
 const STEM_STOPWORDS = new Set(['the', 'and', 'this', 'that', 'its', 'for', 'from', 'with', 'when', 'are', 'can', 'once']);
 const stems = (s) =>
   (s.toLowerCase().match(/[a-z]+/g) || []).filter((w) => w.length > 2 && !STEM_STOPWORDS.has(w)).map((w) => w.slice(0, 5));
-// A note that says an item again, such as "…submitting approves it right away" beside "Approved right away".
-const repeatsAnItem = (note, names) => {
-  const said = new Set(stems(note));
-  return names.some((name) => {
-    const words = stems(name);
-    return words.length > 1 && words.every((w) => said.has(w));
-  });
+// A reason that only names the approval again, such as "…needs Premium Support review" for Premium Support Review.
+const repeatsName = (reason, name) => {
+  const said = new Set(stems(reason));
+  return stems(name).every((w) => said.has(w));
 };
 
+// "Premium Support Review required: requests go to Ana, Ben and Cy for approval."
+function approvalSentence(a) {
+  const to = a.steps.length ? a.steps.join(', then ') : a.approver && a.approver.replace(/,?\s+or\s+(?=[^,]*$)/, ' and ');
+  return to ? `${a.name} required: requests go to ${to} for approval.` : `${a.name} required.`;
+}
+
 // What submitting the record would set off. Approvals can run in parallel, so they keep the
-// order they were given without being numbered.
+// order they were given without being numbered. Only approvals are drawn; processes and the
+// note are kept for older payloads and may be left out.
 function triggerList(t, sources) {
   if (!isPlainObject(t)) return undefined;
   const named = (list, entry) =>
@@ -309,10 +313,11 @@ function triggerList(t, sources) {
     reason: textOf(a.reason, sources),
     steps: (Array.isArray(a.steps) ? a.steps : []).slice(0, MAX_TRIGGERS).map((s) => textOf(s, sources)).filter(Boolean),
   }));
-  const processes = named(t.processes, (p) => ({ name: textOf(p.name, sources), when: textOf(p.when, sources) }));
-  const note = textOf(t.note, sources);
-  const names = [...approvals, ...processes].map((x) => x.name);
-  return { approvals, processes, note: note && !repeatsAnItem(note, names) ? note : undefined };
+  return {
+    approvals: approvals.map((a) => ({ ...a, sentence: approvalSentence(a), detail: a.reason && !repeatsName(a.reason, a.name) ? a.reason : undefined })),
+    processes: named(t.processes, (p) => ({ name: textOf(p.name, sources), when: textOf(p.when, sources) })),
+    note: textOf(t.note, sources),
+  };
 }
 
 const originOf = (url) => (url ? new URL(url).origin : undefined);
@@ -374,6 +379,8 @@ export function buildRecordCard(args = {}) {
 }
 
 const CHANGE_STATUSES = ['preview', 'needs-input', 'rejected'];
+// The bot says how long a preview lasts, so a hint drops any sentence about it expiring.
+const withoutExpiry = (hint) => (hint ? hint.replace(/[^.!]*\bexpires?\b[^.!]*[.!]?/gi, '').trim() || undefined : undefined);
 const sameLabel = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 export function buildQuoteChangeCard(args = {}) {
@@ -420,7 +427,7 @@ export function buildQuoteChangeCard(args = {}) {
     totals: fieldList(args.totals, c.sources, c.currency, 6).map(shown),
     consequences: noteList(args.consequences, c.sources),
     notes: c.notes,
-    confirmHint: textOf(args.confirmHint, c.sources),
+    confirmHint: withoutExpiry(textOf(args.confirmHint, c.sources)),
     url: c.url,
     links: c.links,
     footerNote: c.footerNote,
@@ -460,27 +467,6 @@ const saysTheSame = (a, b) => {
 // An option's approval note goes first among its notes, unless a note already says it.
 const withApprovalNote = (notes, note) => (!note || notes.some((n) => saysTheSame(n, note)) ? notes : [note, ...notes]);
 
-// Lines of the same kind count as one product across options, so "Standard Support" on one
-// and "Premium Support" on another are both the support line; any other line is its own kind.
-const PRODUCT_KINDS = [
-  ['license', /licen[cs]e|\bseats?\b/i],
-  ['pre-commit', /pre-?commit/i],
-  ['support', /support/i],
-];
-const productKind = (name) => (PRODUCT_KINDS.find(([, re]) => re.test(name)) || [name])[0];
-const itemsOf = (o) => (o.lines && o.lines.style === 'items' && o.lines.items.length ? o.lines.items : null);
-
-// What each option leaves out that another option has, such as "No support line".
-function missingProducts(options) {
-  const kinds = [...new Set(options.flatMap((o) => (itemsOf(o) || []).map((l) => productKind(l.name))))];
-  return options.map((o) => {
-    const items = itemsOf(o);
-    if (!items) return [];
-    const has = new Set(items.map((l) => productKind(l.name)));
-    return kinds.filter((k) => !has.has(k)).map((k) => (PRODUCT_KINDS.some(([kind]) => kind === k) ? `No ${k} line` : `No ${k}`));
-  });
-}
-
 export function buildQuoteOptionsCard(args = {}) {
   const mode = MODES.includes(args.mode) ? args.mode : 'preview';
   const build = mode === 'created' ? buildRecordCard : buildQuoteChangeCard;
@@ -495,18 +481,16 @@ export function buildQuoteOptionsCard(args = {}) {
   const drawn = all.filter((o) => mode === 'created' || o.status === 'preview');
   const options = drawn.slice(0, SHOWN_OPTIONS);
   const together = options.length > 1 ? options.length : 0;
-  const missing = missingProducts(options);
-  const preview = (o, i) => ({
+  const preview = (o) => ({
     ...o,
     notes: withApprovalNote(o.notes, o.approvalNote),
     confirmHint: numberedHint(o.confirmHint, o.number, together),
-    missing: missing[i],
   });
   return {
     kind: 'quote-options',
     v: MODEL_VERSION,
     mode,
-    options: mode === 'created' ? options.map((o, i) => ({ ...o, missing: missing[i] })) : options.map(preview),
+    options: mode === 'created' ? options : options.map(preview),
     more: Math.max(0, drawn.length - SHOWN_OPTIONS),
     refused: all
       .filter((o) => !drawn.includes(o))
